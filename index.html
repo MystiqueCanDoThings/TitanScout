@@ -34,6 +34,17 @@ body,.card,button,select,input,textarea,canvas{transition:background-color .4s,c
 .ts tr.hi td{background:rgba(232,163,0,.2)}
 details summary{cursor:pointer;padding:6px 0}
 @media (max-width:600px){.ts{font-size:12px}th,td{padding:5px 6px}}
+.pm{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
+.pmh{display:flex;justify-content:space-between;margin-bottom:6px}
+.pmt{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;margin-bottom:8px}
+.pmt .r{color:#d9443f;font-weight:600}.pmt .b{color:#3b6fe0;font-weight:600;text-align:right}
+.pmeter{display:flex;align-items:center;gap:8px;font-weight:700}
+.pmeter .pr{color:#d9443f;min-width:42px}.pmeter .pb{color:#3b6fe0;min-width:42px;text-align:right}
+.pmeter .bar{flex:1;height:10px;border-radius:5px;background:#3b6fe0;overflow:hidden}
+.pmeter .bar i{display:block;height:100%;background:#d9443f}
+.pmr{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;font-size:13px}
+.pmr>div{padding:6px 8px;border:1px solid var(--line);border-radius:8px}
+.rw{color:#d9443f}.bw{color:#3b6fe0}.ok{color:#18a058;font-weight:700}.no{color:#d9443f;font-weight:700}
 </style>
 </head>
 <body>
@@ -55,7 +66,8 @@ details summary{cursor:pointer;padding:6px 0}
   <button id="tStat">Statbotics (EPA)</button>
   <button id="tRank">Event rankings</button>
   <button id="tTS">Team Stats</button>
-  <button id="tPred">Match Predictor</button>
+  <button id="tPred">Event Predictor</button>
+  <button id="tCust">Custom Predictor</button>
   <button id="tData">Heatmap Import/Export</button>
   <button id="tSet">Settings</button>
 </div>
@@ -118,7 +130,18 @@ details summary{cursor:pointer;padding:6px 0}
   </div>
 </section>
 
-<section id="vPred" class="hide"><div class="card"><p class="mut" id="hSoon">Match Predictor is coming soon.</p></div></section>
+<section id="vPred" class="hide"><div class="card">
+  <p id="pmInfo" class="mut" style="margin-top:0"></p>
+  <div class="row"><select id="pmF"><option value="all">All matches</option><option value="played">Played</option><option value="upcoming">Upcoming</option></select><input id="pmQ" placeholder="Filter team…" style="width:140px"><button id="pmRef" title="Reload">⟳</button></div>
+  <div id="pmList"></div>
+</div></section>
+<section id="vCust" class="hide"><div class="card">
+  <p id="cuInfo" class="mut" style="margin-top:0"></p>
+  <div class="row"><label>Season <select id="cuY"></select></label></div>
+  <div class="row"><b class="rw">Red</b><input id="cr1" type="number" placeholder="Team"><input id="cr2" type="number" placeholder="Team"><input id="cr3" type="number" placeholder="Team"></div>
+  <div class="row"><b class="bw">Blue</b><input id="cb1" type="number" placeholder="Team"><input id="cb2" type="number" placeholder="Team"><input id="cb3" type="number" placeholder="Team"></div>
+  <div id="cuOut"></div>
+</div></section>
 
 <section id="vSet" class="hide"><div class="card">
   <div class="row"><b id="lAppear">Appearance</b></div>
@@ -210,7 +233,7 @@ $('save').onclick=()=>{
 };
 
 // ===== Tabs =====
-const TABS=['Scout','Map','Stat','Rank','TS','Pred','Data','Set'];
+const TABS=['Scout','Map','Stat','Rank','TS','Pred','Cust','Data','Set'];
 function show(v){
   tab=v;rp.playing=false;$('rPlay').textContent=t('play');
   TABS.forEach(n=>{$('v'+n).classList.toggle('hide',n!==v);$('t'+n).classList.toggle('on',n===v)});
@@ -219,6 +242,8 @@ function show(v){
   if(v==='Stat')loadStat();
   if(v==='Rank')loadRank();
   if(v==='TS')loadTS();
+  if(v==='Pred')loadPred().then(renderEvt);
+  if(v==='Cust')renderCust();
 }
 TABS.forEach(n=>$('t'+n).onclick=()=>show(n));
 
@@ -452,7 +477,7 @@ async function loadTS(force){
   if(!force&&TS&&TS.key===ev.key){renderTS();return}
   $('tsInfo').textContent=t('loading');
   try{
-    const [ms,op]=await Promise.all([tba('/event/'+ev.key+'/matches'),tba('/event/'+ev.key+'/oprs').catch(()=>null)]);
+    const [ms,op]=await Promise.all([getMatches(force),tba('/event/'+ev.key+'/oprs').catch(()=>null)]);
     TS=buildTS(ms,op);TS.key=ev.key;
     const opts=TS.cols.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.label)+'</option>').join('');
     $('cX').innerHTML=opts;$('cY').innerHTML=opts;$('cS').innerHTML='<option value="">–</option>'+opts;
@@ -502,6 +527,112 @@ $('tsQ').oninput=renderTS;
 ['cType','cX','cY','cS','cN','cHi'].forEach(id=>$(id).oninput=()=>{if(id==='cHi')renderTS();else drawChart()});
 addEventListener('resize',drawChart);
 
+// ===== Match Predictor =====
+// A team's rating = its estimated points contribution per match (ridge-regularised least squares on alliance scores, pulled toward the event average).
+// <pcore>
+const Phi=z=>{const s=z<0?-1:1,x=Math.abs(z)/Math.SQRT2,u=1/(1+.3275911*x),y=1-((((1.061405429*u-1.453152027)*u+1.421413741)*u-.284496736)*u+.254829592)*u*Math.exp(-x*x);return .5*(1+s*y)};
+function fitRatings(al){
+  const teams=[...new Set(al.flatMap(a=>a.teams))],ix={},n=teams.length;
+  if(!n)return{r:{},mu:0};
+  teams.forEach((t,i)=>ix[t]=i);
+  const mu=al.reduce((s,a)=>s+a.score,0)/al.length/3,lam=1.5;
+  const M=teams.map(()=>Array(n).fill(0)),b=teams.map(()=>[lam*mu]);
+  al.forEach(a=>a.teams.forEach(t=>{const i=ix[t];b[i][0]+=a.score;a.teams.forEach(u=>M[i][ix[u]]++)}));
+  for(let i=0;i<n;i++)M[i][i]+=lam;
+  const X=solve(M,b),r={};teams.forEach((t,i)=>r[t]=X[i][0]);
+  return{r,mu};
+}
+const proj=(R,ts)=>ts.reduce((s,t)=>s+(R.r[t]??R.mu),0);
+// Every row is predicted using ONLY qualification matches played before it, so the track record is honest.
+function buildPred(ms){
+  const ok=m=>m.alliances.red.score>=0&&m.alliances.blue.score>=0;
+  const mk=(m,c)=>({teams:m.alliances[c].team_keys.map(k=>k.slice(3)),score:m.alliances[c].score});
+  const co={qm:0,ef:1,qf:2,sf:3,f:4};
+  const all=ms.filter(m=>m.alliances&&m.alliances.red.team_keys.length&&m.alliances.blue.team_keys.length).sort((a,b)=>co[a.comp_level]-co[b.comp_level]||a.set_number-b.set_number||a.match_number-b.match_number);
+  const qd=all.filter(m=>m.comp_level==='qm'&&ok(m)),al=qd.map(m=>[mk(m,'red'),mk(m,'blue')]);
+  const flatTo=k=>al.slice(0,k).flat(),cache={},fit=k=>cache[k]||(cache[k]=fitRatings(flatTo(k)));
+  const Rfin=fit(al.length),rows=[],errs=[];
+  for(const m of all){
+    const q=m.comp_level==='qm',k=q?qd.filter(x=>x.match_number<m.match_number).length:al.length,Rm=fit(k);
+    const red=m.alliances.red.team_keys.map(x=>x.slice(3)),blue=m.alliances.blue.team_keys.map(x=>x.slice(3));
+    const row={m,label:q?'Q'+m.match_number:m.comp_level.toUpperCase()+' '+(m.comp_level==='f'?'':m.set_number+'-')+m.match_number,red,blue,pr:proj(Rm,red),pb:proj(Rm,blue),played:ok(m),rs:m.alliances.red.score,bs:m.alliances.blue.score,thin:k*2<12};
+    if(row.played&&!row.thin)errs.push((row.rs-row.bs)-(row.pr-row.pb));
+    rows.push(row);
+  }
+  const sigma=errs.length>=8?Math.max(10,Math.sqrt(errs.reduce((s,e)=>s+e*e,0)/errs.length)):30;
+  let good=0,n=0;
+  rows.forEach(r=>{r.p=Phi((r.pr-r.pb)/sigma);if(r.played&&!r.thin&&r.rs!==r.bs){n++;if((r.pr>r.pb)===(r.rs>r.bs))good++}});
+  return{rows,sigma,acc:{ok:good,n},R:Rfin,nAl:al.length*2};
+}
+// </pcore>
+const MC={};
+async function getMatchesFor(k,force){if(force||!MC[k])MC[k]=await tba('/event/'+k+'/matches');return MC[k]}
+const getMatches=force=>getMatchesFor(ev.key,force);
+let PR=null;
+async function loadPred(force){
+  if(!ev){PR=null;$('pmInfo').textContent=t('pickEvent');$('pmList').innerHTML='';return null}
+  if(!force&&PR&&PR.key===ev.key)return PR;
+  $('pmInfo').textContent=t('loading');
+  try{PR=buildPred(await getMatches(force));PR.key=ev.key}catch(e){PR=null;$('pmInfo').textContent=e.message}
+  return PR;
+}
+// Confidence = the projected winner's win probability. Projected scores sit at the ends of the meter; the red share of the bar is red's win chance.
+const confTxt=(p,thin)=>{const c=Math.max(p,1-p);return Math.round(c*100)+'% · '+(thin?'Low (little data)':c>=.75?'High':c>=.6?'Medium':'Low')};
+const meter=(pr,pb,p)=>'<div class="pmeter"><span class="pr">'+Math.round(pr)+'</span><div class="bar"><i style="width:'+(p*100).toFixed(1)+'%"></i></div><span class="pb">'+Math.round(pb)+'</span></div>';
+const side=c=>'<b class="'+(c==='red'?'rw':'bw')+'">'+c.toUpperCase()+'</b>';
+function renderEvt(){
+  if(!PR)return;
+  const f=$('pmF').value,q=$('pmQ').value.trim();
+  const rows=PR.rows.filter(r=>(f==='all'||(f==='played')===r.played)&&(!q||r.red.concat(r.blue).includes(q)));
+  $('pmInfo').textContent=ev.name+' · '+(PR.acc.n?'called '+PR.acc.ok+' of '+PR.acc.n+' played matches ('+Math.round(100*PR.acc.ok/PR.acc.n)+'%), each predicted from earlier matches only':'not enough played matches to score the model yet')+' · typical margin error ±'+Math.round(PR.sigma)+' pts';
+  $('pmList').innerHTML=rows.map(r=>{
+    const pw=r.pr>=r.pb?'red':'blue',real=!r.played?null:r.rs===r.bs?'tie':r.rs>r.bs?'red':'blue';
+    const mark=real&&real!=='tie'?(pw===real?' <span class="ok">✓</span>':' <span class="no">✗</span>'):'';
+    return '<div class="pm"><div class="pmh"><b>'+esc(r.label)+'</b><span class="mut">'+(r.played?'played':'upcoming')+'</span></div>'
+     +'<div class="pmt"><span class="r">'+r.red.join(' ')+'</span><span class="b">'+r.blue.join(' ')+'</span></div>'+meter(r.pr,r.pb,r.p)
+     +'<div class="pmr"><div>Projected<br>'+side(pw)+' · '+confTxt(r.p,r.thin)+'</div><div>Actual<br>'+(real?(real==='tie'?'<b>TIE</b>':side(real))+' '+r.rs+'–'+r.bs+mark:'<span class="mut">not played yet</span>')+'</div></div></div>';
+  }).join('')||'<span class="mut">–</span>';
+}
+// Custom predictor: independent of the selected event. For the teams typed in, it finds their events that season on TBA,
+// fits ratings inside each event, then averages each team's rating across events (weighted by matches played).
+const TC={};let CU=null,cuTok=0,cuTimer=null;
+const teamEvents=(t,y)=>TC[t+'|'+y]||(TC[t+'|'+y]=tba('/team/frc'+t+'/events/'+y+'/keys'));
+async function loadCustom(teams,y){
+  const key=[...teams].sort().join(',')+'|'+y;
+  if(CU&&CU.key===key)return CU;
+  const evs=[...new Set((await Promise.all(teams.map(t=>teamEvents(t,y).catch(()=>[])))).flat())];
+  const all=await Promise.all(evs.map(k=>getMatchesFor(k).catch(()=>[])));
+  const rat={},cnt={},mus=[];let ss=0,nn=0;
+  const mk=(m,c)=>({teams:m.alliances[c].team_keys.map(k=>k.slice(3)),score:m.alliances[c].score});
+  for(const ms of all){
+    const al=ms.filter(m=>m.comp_level==='qm'&&m.alliances&&m.alliances.red.score>=0&&m.alliances.blue.score>=0).flatMap(m=>[mk(m,'red'),mk(m,'blue')]);
+    if(al.length<6)continue;
+    const R=fitRatings(al);mus.push(R.mu);
+    al.forEach(a=>{const e=a.score-proj(R,a.teams);ss+=e*e;nn++});
+    teams.forEach(t=>{const c=al.filter(a=>a.teams.includes(t)).length;if(c){rat[t]=(rat[t]||0)+R.r[t]*c;cnt[t]=(cnt[t]||0)+c}});
+  }
+  teams.forEach(t=>{if(cnt[t])rat[t]/=cnt[t]});
+  CU={key,R:{r:rat,mu:mus.length?mus.reduce((x,z)=>x+z)/mus.length:0},cnt,events:mus.length,sigma:nn>=20?Math.max(10,1.25*Math.sqrt(2*ss/nn)):30};
+  return CU;
+}
+function renderCust(){
+  const g=ids=>ids.map(i=>$(i).value.trim()).filter(Boolean),r=g(['cr1','cr2','cr3']),b=g(['cb1','cb2','cb3']),y=$('cuY').value,teams=[...new Set(r.concat(b))];
+  if(!r.length||!b.length){$('cuOut').innerHTML='<span class="mut">Enter at least one team on each alliance.</span>';$('cuInfo').textContent='';return}
+  const tok=++cuTok;$('cuInfo').textContent=t('loading');
+  loadCustom(teams,y).then(C=>{
+    if(tok!==cuTok)return;
+    const pr=proj(C.R,r),pb=proj(C.R,b),p=Phi((pr-pb)/C.sigma),thin=teams.some(x=>(C.cnt[x]||0)<8),pw=pr>=pb?'red':'blue';
+    const chip=(x,c)=>'<span class="'+c+'">'+esc(x)+': '+(C.cnt[x]?fmt(C.R.r[x])+' ('+C.cnt[x]+' matches)':'no data')+'</span>';
+    $('cuInfo').textContent='TBA '+y+' qualification data from '+C.events+' event(s) · teams with no data count as an average team · typical margin error ±'+Math.round(C.sigma)+' pts';
+    $('cuOut').innerHTML='<div class="pm">'+meter(pr,pb,p)+'<div class="pmr"><div>Projected winner<br>'+side(pw)+' · '+confTxt(p,thin)+'</div><div>Projected score<br>'+Math.round(pr)+' – '+Math.round(pb)+'</div></div>'
+     +'<div class="pmt" style="margin-top:8px"><span>'+r.map(x=>chip(x,'r')).join('<br>')+'</span><span style="text-align:right">'+b.map(x=>chip(x,'b')).join('<br>')+'</span></div></div>';
+  }).catch(e=>{if(tok===cuTok)$('cuInfo').textContent=e.message});
+}
+['pmF','pmQ'].forEach(id=>$(id).oninput=renderEvt);
+$('pmRef').onclick=()=>loadPred(true).then(renderEvt);
+$('cuY').innerHTML=FIELDS.map(f=>'<option>'+f[1]+'</option>').join('');$('cuY').value=seasonYear();$('cuY').onchange=renderCust;
+['cr1','cr2','cr3','cb1','cb2','cb3'].forEach(id=>$(id).oninput=()=>{clearTimeout(cuTimer);cuTimer=setTimeout(renderCust,500)});
+
 // ===== Theme (System / Light / Dark) =====
 const root=document.documentElement;
 function applyTheme(m){if(m==='system')root.removeAttribute('data-theme');else root.dataset.theme=m;pick(['thSystem','thLight','thDark'],'th'+m[0].toUpperCase()+m.slice(1));if(tab==='TS'&&TS)drawChart()}
@@ -524,7 +655,7 @@ let lang='en';
 const t=k=>{const a=(D[lang]||D.en).split('|');return a[K.indexOf(k)]};
 // Replaces the first non-empty text node so labels keep their inputs.
 function setTxt(el,txt){const n=[...el.childNodes].find(c=>c.nodeType===3&&c.nodeValue.trim());if(n)n.nodeValue=txt+(el.children.length?' ':'');else el.textContent=txt}
-const BTN={tScout:'scout',tMap:'map',tStat:'stat',tRank:'rank',tPred:'pred',tData:'data',tSet:'set',exp:'exportJ',imp:'importJ',kNote:'keyNote',hHow:'howTo',hBy:'createdBy',hSoon:'soon',keySave:'saveKey',evGo:'find',evClear:'clear',aRed:'red',aBlue:'blue',pStart:'start',pAuto:'auto',pTele:'tele',clear:'clearPhase',save:'saveMatch',thSystem:'system',thLight:'light',thDark:'dark',lAppear:'appearance',lLang:'language'};
+const BTN={tScout:'scout',tMap:'map',tStat:'stat',tRank:'rank',tData:'data',tSet:'set',exp:'exportJ',imp:'importJ',kNote:'keyNote',hHow:'howTo',hBy:'createdBy',keySave:'saveKey',evGo:'find',evClear:'clear',aRed:'red',aBlue:'blue',pStart:'start',pAuto:'auto',pTele:'tele',clear:'clearPhase',save:'saveMatch',thSystem:'system',thLight:'light',thDark:'dark',lAppear:'appearance',lLang:'language'};
 const LBL={fieldSel:'field',tbaKey:'tbaKey',team:'teamNum',match:'matchNo',fTeam:'team',rMatch:'replay',fPhase:'phase',rad:'radius',showStart:'starts',rSpd:'speed',rHeat:'heat'};
 function setLang(l){
   lang=D[l]?l:'en';try{localStorage.setItem('frcLang',lang)}catch(e){}
