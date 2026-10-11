@@ -1,0 +1,2 @@
+# One Statbotics/TBA event key per line. The workflow fetches EPA for each.
+2026caasv
