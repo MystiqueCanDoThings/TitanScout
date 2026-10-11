@@ -29,6 +29,11 @@ table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:6px 8px;b
 /* Fallback fade for browsers without View Transitions; the circular reveal below replaces it where supported. */
 body,.card,button,select,input,textarea,canvas{transition:background-color .4s,color .4s,border-color .4s}
 ::view-transition-old(root),::view-transition-new(root){animation:none;mix-blend-mode:normal}
+.ts{font-size:13px}.ts th{cursor:pointer;user-select:none}
+.ts td:first-child,.ts th:first-child{position:sticky;left:0;background:var(--card);font-weight:600}
+.ts tr.hi td{background:rgba(232,163,0,.2)}
+details summary{cursor:pointer;padding:6px 0}
+@media (max-width:600px){.ts{font-size:12px}th,td{padding:5px 6px}}
 </style>
 </head>
 <body>
@@ -49,6 +54,7 @@ body,.card,button,select,input,textarea,canvas{transition:background-color .4s,c
   <button id="tMap">Heatmap</button>
   <button id="tStat">Statbotics (EPA)</button>
   <button id="tRank">Event rankings</button>
+  <button id="tTS">Team Stats</button>
   <button id="tPred">Match Predictor</button>
   <button id="tData">Heatmap Import/Export</button>
   <button id="tSet">Settings</button>
@@ -94,6 +100,24 @@ body,.card,button,select,input,textarea,canvas{transition:background-color .4s,c
 
 <section id="vStat" class="hide"><div class="card"><p id="stInfo" class="mut"></p><div id="stTable" style="overflow-x:auto"></div></div></section>
 <section id="vRank" class="hide"><div class="card"><p id="rkInfo" class="mut"></p><div id="rkTable" style="overflow-x:auto"></div></div></section>
+<section id="vTS" class="hide">
+  <div class="card">
+    <div class="row"><p id="tsInfo" class="mut" style="margin:0;flex:1;min-width:200px"></p><button id="tsRef" title="Reload">⟳</button></div>
+    <div class="row"><input id="tsQ" placeholder="Filter team…" style="width:140px"><details id="tsCols"><summary>Columns</summary><div id="tsColList" class="row" style="max-width:100%"></div></details></div>
+    <div id="tsTable" style="overflow-x:auto"></div>
+  </div>
+  <div class="card">
+    <div class="row"><b>Chart</b>
+      <select id="cType"><option value="bar">Bar</option><option value="bubble">Bubble</option></select>
+      <label>X <select id="cX"></select></label>
+      <label id="lY" class="hide">Y <select id="cY"></select></label>
+      <label id="lS" class="hide">Size <select id="cS"></select></label>
+      <label>Top <input id="cN" type="number" value="12" min="1" style="width:70px"></label>
+      <label>Highlight <input id="cHi" placeholder="2543" style="width:90px"></label></div>
+    <canvas id="tsCanvas" style="height:360px"></canvas>
+  </div>
+</section>
+
 <section id="vPred" class="hide"><div class="card"><p class="mut" id="hSoon">Match Predictor is coming soon.</p></div></section>
 
 <section id="vSet" class="hide"><div class="card">
@@ -186,7 +210,7 @@ $('save').onclick=()=>{
 };
 
 // ===== Tabs =====
-const TABS=['Scout','Map','Stat','Rank','Pred','Data','Set'];
+const TABS=['Scout','Map','Stat','Rank','TS','Pred','Data','Set'];
 function show(v){
   tab=v;rp.playing=false;$('rPlay').textContent=t('play');
   TABS.forEach(n=>{$('v'+n).classList.toggle('hide',n!==v);$('t'+n).classList.toggle('on',n===v)});
@@ -194,6 +218,7 @@ function show(v){
   if(v==='Data')renderList();
   if(v==='Stat')loadStat();
   if(v==='Rank')loadRank();
+  if(v==='TS')loadTS();
 }
 TABS.forEach(n=>$('t'+n).onclick=()=>show(n));
 
@@ -386,9 +411,100 @@ async function loadStat(){
 }
 
 
+// ===== Team Stats =====
+// TBA only publishes ALLIANCE totals per match, so per-team numbers are least-squares estimates (the same math as OPR) run on each field.
+const STATS=['Hub Auto Fuel Count','Hub Teleop Fuel Count','Hub Endgame Fuel Count','Hub Total Fuel Count','Hub Transition Fuel Count','Hub Shift 1 Fuel Count','Hub Shift 2 Fuel Count','Hub Shift 3 Fuel Count','Hub Shift 4 Fuel Count','Hub First Active Shift Count','Hub Second Active Shift Count','Hub Uncounted','Auto Tower Points','End Game Tower Points','Energized Achieved','Foul Points','G206 Penalty','Major Foul Count','Minor Foul Count','RP','Supercharged Achieved','Total Auto Points','Total Points','Total Teleop Points','Total Tower Points','Traversal Achieved'];
+const DEFCOLS=['OPR','Hub Auto Fuel Count','Hub Teleop Fuel Count','Hub Total Fuel Count','Total Auto Points','Total Teleop Points','Total Tower Points','Total Points'];
+// <core>
+const nrm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,'');
+function flat(o,p,out){if(!o||typeof o!=='object'||Array.isArray(o))return;for(const k in o){const v=o[k],q=p?p+'.'+k:k;if(typeof v==='number')out[q]=v;else if(typeof v==='boolean')out[q]=+v;else flat(v,q,out)}}
+// Finds the TBA field whose name contains the label's words in order; the shortest match wins (most specific).
+function pickPath(tk,P){
+  if(!tk.length)return null;
+  const ok=P.filter(p=>{const q=nrm(p);if(tk.length===1)return nrm(p.split('.').pop())===tk[0];let i=0;for(const w of tk){i=q.indexOf(w,i);if(i<0)return false;i+=w.length}return true});
+  return ok.sort((a,b)=>nrm(a).length-nrm(b).length)[0]||null;
+}
+function solve(M,R){
+  const n=M.length,c=R[0].length,A=M.map((r,i)=>r.concat(R[i]));
+  for(let i=0;i<n;i++){let p=i;for(let r=i+1;r<n;r++)if(Math.abs(A[r][i])>Math.abs(A[p][i]))p=r;[A[i],A[p]]=[A[p],A[i]];const d=A[i][i];for(let j=i;j<n+c;j++)A[i][j]/=d;for(let r=0;r<n;r++)if(r!==i){const f=A[r][i];if(f)for(let j=i;j<n+c;j++)A[r][j]-=f*A[i][j]}}
+  return A.map(r=>r.slice(n));
+}
+function buildTS(ms,op){
+  const al=[],paths=new Set();
+  ms.filter(m=>m.comp_level==='qm'&&m.score_breakdown).forEach(m=>['red','blue'].forEach(c=>{const f={};flat(m.score_breakdown[c],'',f);Object.keys(f).forEach(k=>paths.add(k));al.push({teams:m.alliances[c].team_keys.map(k=>k.slice(3)),f})}));
+  const P=[...paths],found={},cols=[{id:'OPR',label:'OPR'}],pc=[];
+  STATS.forEach(l=>{const tk=l.toLowerCase().split(' ').filter(w=>w!=='fuel');const p=pickPath(tk,P)||pickPath(tk.filter(w=>!['hub','count','shift'].includes(w)),P);found[l]=p;if(p){cols.push({id:l,label:l,path:p});pc.push(p)}});
+  const used=new Set(pc);P.filter(p=>!used.has(p)).sort().forEach(p=>{cols.push({id:'x:'+p,label:p,path:p,extra:1});pc.push(p)});
+  const teams=[...new Set(al.flatMap(a=>a.teams))].sort((a,b)=>a-b),ix={};teams.forEach((t,i)=>ix[t]=i);
+  const n=teams.length,M=teams.map(()=>Array(n).fill(0)),R=teams.map(()=>Array(pc.length).fill(0)),played={};
+  al.forEach(a=>a.teams.forEach(t=>{const i=ix[t];played[t]=(played[t]||0)+1;a.teams.forEach(u=>M[i][ix[u]]++);pc.forEach((p,c)=>R[i][c]+=a.f[p]||0)}));
+  for(let i=0;i<n;i++)M[i][i]+=1e-3;
+  const X=n?solve(M,R):[],v={},tp=found['Total Points'];
+  teams.forEach((t,i)=>{v[t]={};const o=op&&op.oprs&&op.oprs['frc'+t];v[t].OPR=o!=null?o:(tp?X[i][pc.indexOf(tp)]:null);cols.forEach(c=>{if(c.path)v[t][c.id]=X[i][pc.indexOf(c.path)]})});
+  return{teams,cols,v,found,played,matches:al.length/2};
+}
+// </core>
+let TS=null,tsSort={id:'OPR',dir:-1},tsVis=null;
+try{tsVis=JSON.parse(localStorage.getItem('frcTsCols')||'null')}catch(e){}
+const fmt=v=>v==null?'–':(Math.abs(v)<10?v.toFixed(2):v.toFixed(1));
+async function loadTS(force){
+  if(!ev){$('tsInfo').textContent=t('pickEvent');$('tsTable').innerHTML='';return}
+  if(!force&&TS&&TS.key===ev.key){renderTS();return}
+  $('tsInfo').textContent=t('loading');
+  try{
+    const [ms,op]=await Promise.all([tba('/event/'+ev.key+'/matches'),tba('/event/'+ev.key+'/oprs').catch(()=>null)]);
+    TS=buildTS(ms,op);TS.key=ev.key;
+    const opts=TS.cols.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.label)+'</option>').join('');
+    $('cX').innerHTML=opts;$('cY').innerHTML=opts;$('cS').innerHTML='<option value="">–</option>'+opts;
+    $('cX').value='OPR';$('cY').value=TS.cols[3]?TS.cols[3].id:'OPR';
+    renderTS();
+  }catch(e){$('tsInfo').textContent=e.message}
+}
+function renderTS(){
+  if(!TS)return;
+  const vis=new Set(tsVis||DEFCOLS),miss=Object.keys(TS.found).filter(k=>!TS.found[k]);
+  $('tsInfo').textContent=ev.name+' · '+TS.teams.length+' · '+TS.matches+' alliance-matches'+(miss.length?' · not in this event\'s data: '+miss.join(', '):'')+' · per-team values are OPR-style estimates';
+  $('tsColList').innerHTML=TS.cols.map(c=>'<label style="font-size:13px"><input type="checkbox" data-c="'+esc(c.id)+'"'+(vis.has(c.id)?' checked':'')+'> '+esc(c.label)+'</label>').join('');
+  $('tsColList').querySelectorAll('input').forEach(i=>i.onchange=()=>{tsVis=[...$('tsColList').querySelectorAll('input:checked')].map(x=>x.dataset.c);try{localStorage.setItem('frcTsCols',JSON.stringify(tsVis))}catch(e){}renderTS()});
+  const cols=TS.cols.filter(c=>vis.has(c.id)),q=$('tsQ').value.trim(),hi=$('cHi').value.trim();
+  const rows=TS.teams.filter(x=>!q||String(x).startsWith(q)).sort((a,b)=>((TS.v[a][tsSort.id]??-1e9)-(TS.v[b][tsSort.id]??-1e9))*tsSort.dir);
+  $('tsTable').innerHTML='<table class="ts"><tr><th data-s="team">Team</th>'+cols.map(c=>'<th data-s="'+esc(c.id)+'">'+esc(c.label)+(tsSort.id===c.id?(tsSort.dir<0?' ▼':' ▲'):'')+'</th>').join('')+'</tr>'+rows.map(x=>'<tr'+(String(x)===hi?' class="hi"':'')+'><td>'+x+'</td>'+cols.map(c=>'<td>'+fmt(TS.v[x][c.id])+'</td>').join('')+'</tr>').join('')+'</table>';
+  $('tsTable').querySelectorAll('th').forEach(h=>h.onclick=()=>{const id=h.dataset.s;if(id==='team'){tsSort={id:'OPR',dir:-1}}else tsSort={id,dir:tsSort.id===id?-tsSort.dir:-1};renderTS()});
+  drawChart();
+}
+// Chart builder: bar (top N of one stat) or bubble (X, Y and size from any columns); highlight one team.
+function drawChart(){
+  if(!TS||tab!=='TS')return;
+  const c=$('tsCanvas'),dpr=devicePixelRatio||1,w=c.clientWidth,h=Math.round(Math.min(560,Math.max(300,w*.6)));
+  c.width=w*dpr;c.height=h*dpr;c.style.height=h+'px';
+  const g=c.getContext('2d');g.scale(dpr,dpr);g.font='12px system-ui';
+  const cs=getComputedStyle(document.documentElement),fg=cs.getPropertyValue('--fg'),mut=cs.getPropertyValue('--mut'),acc=cs.getPropertyValue('--acc'),ln=cs.getPropertyValue('--line');
+  const type=$('cType').value,X=$('cX').value,Y=$('cY').value,S=$('cS').value,hi=$('cHi').value.trim(),N=Math.max(1,+$('cN').value||12);
+  $('lY').classList.toggle('hide',type!=='bubble');$('lS').classList.toggle('hide',type!=='bubble');
+  const lab=id=>(TS.cols.find(k=>k.id===id)||{}).label||'';
+  let rows=TS.teams.map(x=>({x:TS.v[x][X],y:TS.v[x][Y],s:S?TS.v[x][S]:null,id:String(x)})).filter(r=>r.x!=null&&(type==='bar'||r.y!=null));
+  g.fillStyle=fg;
+  if(type==='bar'){
+    rows.sort((a,b)=>b.x-a.x);rows=rows.slice(0,N);
+    const max=Math.max(0,...rows.map(r=>r.x)),min=Math.min(0,...rows.map(r=>r.x)),pw=w-120,z=56+(-min)/((max-min)||1)*pw,bh=(h-34)/(rows.length||1);
+    g.fillStyle=mut;g.fillText(lab(X),56,14);
+    rows.forEach((r,i)=>{const y=22+i*bh,bw=r.x/((max-min)||1)*pw;g.fillStyle=r.id===hi?'#e8a300':acc;g.fillRect(z,y+2,bw,Math.max(2,bh-4));g.fillStyle=fg;g.fillText(r.id,8,y+bh/2+4);g.fillText(fmt(r.x),bw>=0?z+bw+4:z+4,y+bh/2+4)});
+  }else{
+    const xs=rows.map(r=>r.x),ys=rows.map(r=>r.y),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),ss=rows.map(r=>r.s).filter(v=>v!=null),s0=Math.min(...ss),s1=Math.max(...ss);
+    const L=50,B=h-34,T=14,Rr=w-20,px=v=>L+(v-x0)/((x1-x0)||1)*(Rr-L),py=v=>B-(v-y0)/((y1-y0)||1)*(B-T);
+    g.strokeStyle=ln;g.strokeRect(L,T,Rr-L,B-T);g.fillStyle=mut;
+    g.fillText(fmt(x0),L,h-18);g.fillText(fmt(x1),Rr-24,h-18);g.fillText(lab(X),(L+Rr)/2-30,h-4);g.fillText(fmt(y0),4,B);g.fillText(fmt(y1),4,T+10);g.fillText(lab(Y),L+6,T+12);
+    rows.forEach(r=>{const rad=r.s==null?7:5+(r.s-s0)/((s1-s0)||1)*16;g.globalAlpha=r.id===hi?1:.55;g.fillStyle=r.id===hi?'#e8a300':acc;g.beginPath();g.arc(px(r.x),py(r.y),rad,0,7);g.fill();g.globalAlpha=1;if(rows.length<=80||r.id===hi){g.fillStyle=fg;g.fillText(r.id,px(r.x)+rad+2,py(r.y)+4)}});
+  }
+}
+$('tsRef').onclick=()=>loadTS(true);
+$('tsQ').oninput=renderTS;
+['cType','cX','cY','cS','cN','cHi'].forEach(id=>$(id).oninput=()=>{if(id==='cHi')renderTS();else drawChart()});
+addEventListener('resize',drawChart);
+
 // ===== Theme (System / Light / Dark) =====
 const root=document.documentElement;
-function applyTheme(m){if(m==='system')root.removeAttribute('data-theme');else root.dataset.theme=m;pick(['thSystem','thLight','thDark'],'th'+m[0].toUpperCase()+m.slice(1))}
+function applyTheme(m){if(m==='system')root.removeAttribute('data-theme');else root.dataset.theme=m;pick(['thSystem','thLight','thDark'],'th'+m[0].toUpperCase()+m.slice(1));if(tab==='TS'&&TS)drawChart()}
 // Uses the View Transitions API for a circular reveal from the clicked button; falls back to the CSS fade.
 function setTheme(m,x,y){
   try{localStorage.setItem('frcTheme',m)}catch(e){}
