@@ -369,8 +369,10 @@ const sbRow=e=>({team:e.team,epa:get(e,'epa.total_points.mean')??get(e,'epa.unit
 async function loadStat(){
   if(!ev){$('stInfo').textContent=t('pickEvent');$('stTable').innerHTML='';return}
   $('stInfo').textContent=t('loading');
-  let rows=null,why='';
-  try{const d=await sbj('team_events?event='+encodeURIComponent(ev.key));if(Array.isArray(d))rows=d.map(sbRow)}catch(e){why=e.message}
+  let rows=null,why='',upd='';
+  // 1) JSON saved in this repo by scripts/fetch_statbotics.py (GitHub Action). 2) Live API. 3) Per-team fallback below.
+  try{const r=await fetch('data/statbotics/'+encodeURIComponent(ev.key)+'.json',{cache:'no-store'});if(r.ok){const j=await r.json();if(Array.isArray(j.rows)&&j.rows.length){rows=j.rows.map(sbRow);upd=j.updated}}}catch(e){}
+  if(!rows)try{const d=await sbj('team_events?event='+encodeURIComponent(ev.key));if(Array.isArray(d))rows=d.map(sbRow)}catch(e){why=e.message}
   if(!rows||!rows.length){
     try{
       const keys=await tba('/event/'+ev.key+'/teams/keys');
@@ -379,7 +381,7 @@ async function loadStat(){
   }
   if(!rows||!rows.length){$('stInfo').textContent=t('noEpa')+(why?' ('+why+')':'');$('stTable').innerHTML='';return}
   rows.sort((a,b)=>(b.epa??-1)-(a.epa??-1));
-  $('stInfo').textContent=t('epaFor')+' '+ev.name+' · '+rows.length+' · Statbotics';
+  $('stInfo').textContent=t('epaFor')+' '+ev.name+' · '+rows.length+' · Statbotics'+(upd?' · '+upd:'');
   $('stTable').innerHTML='<table><tr><th>#</th><th>'+t('team')+'</th><th>EPA</th><th>'+t('auto')+'</th><th>'+t('tele')+'</th><th>'+t('endgame')+'</th></tr>'+rows.map((x,n)=>'<tr><td>'+(n+1)+'</td><td>'+esc(x.team)+'</td><td>'+num(x.epa)+'</td><td>'+num(x.auto)+'</td><td>'+num(x.tele)+'</td><td>'+num(x.end)+'</td></tr>').join('')+'</table>';
 }
 
