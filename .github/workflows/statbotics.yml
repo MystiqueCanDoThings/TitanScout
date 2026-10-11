@@ -17,6 +17,8 @@ jobs:
           python-version: "3.12"
       - run: pip install statbotics
       - run: python scripts/fetch_statbotics.py
+        env:
+          TBA_KEY: ${{ secrets.TBA_KEY }}
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
