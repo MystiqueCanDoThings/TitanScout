@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fetch Statbotics EPA for every event in data/events.txt and save it as JSON that index.html reads."""
-import datetime, json, pathlib, sys, time, urllib.error, urllib.request
+import datetime, json, os, pathlib, sys, time, urllib.error, urllib.request
 
 import statbotics
 
@@ -13,40 +13,81 @@ keys = [l.strip() for l in (ROOT / "data" / "events.txt").read_text().splitlines
 sb = statbotics.Statbotics()
 
 
-API = "https://api.statbotics.io/v3/team_events"
+BASE = "https://api.statbotics.io/v3"
 
 
-def raw(query):
-    """Direct request that sends only the parameters we choose (no default sort)."""
-    req = urllib.request.Request(f"{API}?{query}", headers={"User-Agent": "TitanScout-data-fetch"})
-    with urllib.request.urlopen(req, timeout=60) as r:
+def get_json(url, headers=None):
+    h = {"User-Agent": "TitanScout-data-fetch"}
+    h.update(headers or {})
+    with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=60) as r:
         return json.load(r)
 
 
-# The package adds metric=year to every query, which the API rejected ("Invalid query"), so try other sorts and plain requests.
+def describe(e):
+    if isinstance(e, urllib.error.HTTPError):
+        return f"HTTP {e.code} {e.read()[:120]!r}"
+    return str(e)
+
+
+# The package adds metric=year to every query ("Invalid query"), so try plain requests and other sorts first.
 STRATEGIES = [
-    ("raw, event only", lambda k: raw(f"event={k}")),
-    ("raw, with limit", lambda k: raw(f"event={k}&limit=1000")),
+    ("raw, event only", lambda k: get_json(f"{BASE}/team_events?event={k}")),
+    ("raw, with limit", lambda k: get_json(f"{BASE}/team_events?event={k}&limit=1000")),
     ("package, metric=epa_end", lambda k: sb.get_team_events(event=k, limit=1000, metric="epa_end")),
-    ("package, metric=team", lambda k: sb.get_team_events(event=k, limit=1000, metric="team")),
 ]
 
 
+def teams_for(key):
+    """Team numbers at an event: from Statbotics matches, else from TBA (needs a TBA_KEY secret)."""
+    teams = set()
+    try:
+        for m in get_json(f"{BASE}/matches?event={key}&limit=1000"):
+            for side in ("red", "blue"):
+                for t in ((m.get("alliances") or {}).get(side) or {}).get("team_keys", []):
+                    teams.add(int(str(t).replace("frc", "")))
+    except Exception as e:
+        print(f"{key}: Statbotics match list failed: {describe(e)}", file=sys.stderr)
+    if not teams and os.environ.get("TBA_KEY"):
+        try:
+            tba = get_json(f"https://www.thebluealliance.com/api/v3/event/{key}/teams/keys",
+                           {"X-TBA-Auth-Key": os.environ["TBA_KEY"]})
+            teams = {int(t[3:]) for t in tba}
+        except Exception as e:
+            print(f"{key}: TBA team list failed: {describe(e)}", file=sys.stderr)
+    elif not teams:
+        print(f"{key}: no TBA_KEY secret set, so no team list fallback", file=sys.stderr)
+    return sorted(teams)
+
+
 def fetch(key):
-    for rnd in range(2):
-        for name, fn in STRATEGIES:
+    try:
+        get_json(f"{BASE}/event/{key}")
+        print(f"{key}: Statbotics knows this event")
+    except Exception as e:
+        print(f"{key}: Statbotics event lookup failed: {describe(e)}", file=sys.stderr)
+    for name, fn in STRATEGIES:
+        try:
+            rows = fn(key)
+            if rows:
+                print(f"{key}: ok via {name}")
+                return rows
+            print(f"{key}: {name} returned no rows", file=sys.stderr)
+        except Exception as e:
+            print(f"{key}: {name} failed: {describe(e)}", file=sys.stderr)
+    # Last resort: one request per team.
+    rows = []
+    for team in teams_for(key):
+        for attempt in range(2):
             try:
-                rows = fn(key)
-                if rows:
-                    print(f"{key}: ok via {name}")
-                    return rows
-                print(f"{key}: {name} returned no rows", file=sys.stderr)
-            except urllib.error.HTTPError as e:
-                print(f"{key}: {name} failed: HTTP {e.code} {e.read()[:200]!r}", file=sys.stderr)
+                rows.append(get_json(f"{BASE}/team_event/{team}/{key}"))
+                break
             except Exception as e:
-                print(f"{key}: {name} failed: {e}", file=sys.stderr)
-        time.sleep(5 * (rnd + 1))
-    return None
+                if attempt:
+                    print(f"{key}: team {team} failed: {describe(e)}", file=sys.stderr)
+                time.sleep(1)
+    if rows:
+        print(f"{key}: ok via per-team requests ({len(rows)} teams)")
+    return rows or None
 
 
 failed = 0
