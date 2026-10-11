@@ -4,40 +4,65 @@ This program is used for the most elite scouting for FRC.
 
 Manny Machado - "There's too many stats." I agree so too but I prefer having more statistics and numbers.
 
+## What is TitanScout?
+
+TitanScout is a free, browser-based scouting tool for FIRST Robotics Competition (FRC) teams. It tracks where robots drive during matches, builds heatmaps, and pulls event data from The Blue Alliance to give per-team stats and match predictions.
+
+It runs in any browser on a phone, tablet, or computer. There is no account or install, and your scouting data stays on your own device.
+
+## Features
+
+- **Scout:** Record a robot's start position and path during auto and teleop by tapping and dragging on a picture of the field. Matches are saved on the device. Field images are included for the 2022 to 2026 seasons.
+- **Heatmap:** See where a team spends its time on the field. Filter by auto or teleop and replay any match at up to 4x speed.
+- **Event bar:** Enter your TBA key once and pick an event by name, code, city, or state. Every tab then shows that one event.
+- **Event rankings:** Live qualification standings for the selected event.
+- **Team Stats:** OPR plus estimated per-team values for fuel counts, tower points, fouls, RP, and more. Sort and filter the table, choose your columns, and build bar or bubble charts from any stats.
+- **Event Predictor:** Every match at the event with a projected score, a win-chance meter, and a confidence level, shown next to the real winner once the match is played.
+- **Custom Predictor:** Enter any six teams and the app pulls their results for a chosen season from TBA to project a score and a winner. It does not need an event selected.
+- **Statbotics (EPA):** EPA for the event's teams, read from data saved in this repo by a scheduled GitHub Action, with the live Statbotics API as a fallback.
+- **Heatmap Import/Export:** Move scouted match data between devices as JSON.
+- **Settings:** Light, dark, or system theme with an animated switch, and a language picker: English, Spanish, French, German, Italian, Japanese, Arabic, Portuguese, and Mandarin Chinese.
+
+### How the stats work
+
+TBA only publishes totals for each alliance, not for each robot. Per-team stats and predictions are therefore estimates from match results, using the same least-squares method as OPR. They become more reliable as more matches are played. The predictors show a confidence level, and it stays low until there is enough data.
+
+## Setup
+
+### 1. Get a TBA key
+
+1. Create a free account at [thebluealliance.com/account](https://www.thebluealliance.com/account).
+2. Create a read API key.
+3. Paste it into the **TBA key** box at the top of the app and press **Save key**. It is stored only in your browser.
+
+### 2. Run it
+
+Open the GitHub Pages site for this repo, or open `index.html` in a browser.
+
+### 3. Optional: Statbotics data (GitHub Action)
+
+1. Add the event keys you want, one per line, to `data/events.txt` (for example `2026caasv`).
+2. In the repo go to **Settings → Actions → General → Workflow permissions** and choose **Read and write permissions**.
+3. Optional but recommended: add your TBA key as a repository secret named `TBA_KEY` under **Settings → Secrets and variables → Actions**.
+4. Open the **Actions** tab, choose **Update Statbotics data**, and press **Run workflow**. After that it runs every 3 hours and whenever `data/events.txt` changes.
+
+The Action saves one JSON file per event in `data/statbotics/`, and the app reads it from there.
+
+## Repo layout
+
+```
+index.html                  the whole app
+favicon.png
+images/                     field images (field22.png to field26.png)
+data/events.txt             events for the Statbotics Action
+data/statbotics/            JSON saved by the Action
+scripts/fetch_statbotics.py Python script the Action runs
+.github/workflows/statbotics.yml
+```
+
 ## Fixes and Features
 
-### Future Updates:
-- EPA tracker. Powered by Statbotics data
-- Match Predictor. Input the event and match and it will give you the win probability and as well as projected scores similar to Statbotics
-- Event page for the user to click on the event, and from there it will give you its respective data. Here is the data that will be added to the website
-    1. OPR
-    2. Hub Auto Fuel Count
-    3. Hub Teleop Fuel Count
-    4. Hub Endgame Fuel Count
-    5. Hub Total Fuel Count
-    6. Hub Transition Fuel Count
-    7. Hub Shift 1 Fuel Count
-    8. Hub Shift 2 Fuel Count
-    9. Hub Shift 3 Fuel Count
-    10. Hub Shift 4 Fuel Count
-    11. Hub First Active Shift Count
-    12. Hub Second Active Shift Count
-    13. Hub Uncounted
-    14. Auto Tower Points
-    15. End Game Tower Points
-    16. Energized Achieved
-    17. Foul Points
-    18. G206 Penalty
-    19. Major Foul Count
-    20. Minor Foul Count
-    21. RP
-    22. Supercharged Achieved
-    23. Total Auto Points
-    24. Total Points
-    25. Total Teleop Points
-    26. Total Tower Points
-    27. Traversal Achieved
-        
+### Future Updates:      
 - Strategy Whiteboard
 - Automated Heatmap tracking
 - Define robot types in event tab. (Turret, Dumper, Telescope, With climber)
@@ -45,4 +70,8 @@ Manny Machado - "There's too many stats." I agree so too but I prefer having mor
 - Have a legitimate website instead of relying on GitHub Pages
 
 ### Bugs that are known or things in need of change
-- 
+- Issues to pull data from Statbotics
+
+## Credits
+
+Created by MystiqueCanDoThings. Event data from [The Blue Alliance](https://www.thebluealliance.com) and [Statbotics](https://www.statbotics.io).
