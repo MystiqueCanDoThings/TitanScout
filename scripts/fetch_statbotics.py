@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fetch Statbotics EPA for every event in data/events.txt and save it as JSON that index.html reads."""
-import datetime, json, pathlib, sys, time
+import datetime, json, pathlib, sys, time, urllib.error, urllib.request
 
 import statbotics
 
@@ -13,14 +13,39 @@ keys = [l.strip() for l in (ROOT / "data" / "events.txt").read_text().splitlines
 sb = statbotics.Statbotics()
 
 
+API = "https://api.statbotics.io/v3/team_events"
+
+
+def raw(query):
+    """Direct request that sends only the parameters we choose (no default sort)."""
+    req = urllib.request.Request(f"{API}?{query}", headers={"User-Agent": "TitanScout-data-fetch"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)
+
+
+# The package adds metric=year to every query, which the API rejected ("Invalid query"), so try other sorts and plain requests.
+STRATEGIES = [
+    ("raw, event only", lambda k: raw(f"event={k}")),
+    ("raw, with limit", lambda k: raw(f"event={k}&limit=1000")),
+    ("package, metric=epa_end", lambda k: sb.get_team_events(event=k, limit=1000, metric="epa_end")),
+    ("package, metric=team", lambda k: sb.get_team_events(event=k, limit=1000, metric="team")),
+]
+
+
 def fetch(key):
-    """Retry with backoff, since the Statbotics API sometimes returns 5xx."""
-    for attempt in range(4):
-        try:
-            return sb.get_team_events(event=key, limit=1000)
-        except Exception as e:
-            print(f"{key}: attempt {attempt + 1} failed: {e}", file=sys.stderr)
-            time.sleep(3 * 2 ** attempt)
+    for rnd in range(2):
+        for name, fn in STRATEGIES:
+            try:
+                rows = fn(key)
+                if rows:
+                    print(f"{key}: ok via {name}")
+                    return rows
+                print(f"{key}: {name} returned no rows", file=sys.stderr)
+            except urllib.error.HTTPError as e:
+                print(f"{key}: {name} failed: HTTP {e.code} {e.read()[:200]!r}", file=sys.stderr)
+            except Exception as e:
+                print(f"{key}: {name} failed: {e}", file=sys.stderr)
+        time.sleep(5 * (rnd + 1))
     return None
 
 
