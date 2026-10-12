@@ -531,31 +531,52 @@ addEventListener('resize',drawChart);
 // A team's rating = its estimated points contribution per match (ridge-regularised least squares on alliance scores, pulled toward the event average).
 // <pcore>
 const Phi=z=>{const s=z<0?-1:1,x=Math.abs(z)/Math.SQRT2,u=1/(1+.3275911*x),y=1-((((1.061405429*u-1.453152027)*u+1.421413741)*u-.284496736)*u+.254829592)*u*Math.exp(-x*x);return .5*(1+s*y)};
-function fitRatings(al){
-  const teams=[...new Set(al.flatMap(a=>a.teams))],ix={},n=teams.length;
-  if(!n)return{r:{},mu:0};
+// Relative strength index (RSI) from a team's own qualification matches: average margin / average score. Scale-free, so it carries across seasons.
+function rsiOf(ms,team){
+  let m=0,s=0,m2=0,n=0;
+  for(const x of ms){
+    if(!x.alliances||x.comp_level!=='qm')continue;
+    const r=x.alliances.red,b=x.alliances.blue;if(r.score<0||b.score<0)continue;
+    const mine=r.team_keys.includes('frc'+team)?r:b.team_keys.includes('frc'+team)?b:null;if(!mine)continue;
+    const opp=mine===r?b:r,d=mine.score-opp.score;m+=d;m2+=d*d;s+=(mine.score+opp.score)/2;n++;
+  }
+  return n&&s?{rsi:m/s,n,mu:s/n/3,sd:Math.sqrt(m2/n)}:null;
+}
+const PW=[1,.5,.25];// weight of this season / last season / two seasons ago
+// Merge a team's per-season RSIs. eff = evidence weight (matches x season weight); trust = eff/(eff+12).
+function mergeRSI(parts){let a=0,w=0;parts.forEach(p=>{const e=p.n*PW[p.d];a+=p.rsi*e;w+=e});return w?{rsi:a/w,eff:w}:null}
+const priorMean=(p,mu)=>{const sh=p.eff/(p.eff+12);return Math.min(3*mu,Math.max(.2*mu,mu*(1+3*p.rsi*sh)))};
+// Ridge fit pulled toward each team's prior (its history) instead of one flat average; more history = stronger pull.
+function fitRatings(al,opt={}){
+  const pr=opt.prior||{},ts=new Set(al.flatMap(a=>a.teams));(opt.teams||[]).forEach(t=>ts.add(t));
+  const teams=[...ts],ix={},n=teams.length;
+  const mu=al.length>=6?al.reduce((s,a)=>s+a.score,0)/al.length/3:(opt.mu||0);
+  if(!n)return{r:{},mu};
   teams.forEach((t,i)=>ix[t]=i);
-  const mu=al.reduce((s,a)=>s+a.score,0)/al.length/3,lam=1.5;
-  const M=teams.map(()=>Array(n).fill(0)),b=teams.map(()=>[lam*mu]);
+  const M=teams.map(()=>Array(n).fill(0)),b=teams.map(()=>[0]);
+  teams.forEach((t,i)=>{const p=pr[t],lam=1.5+(p?4*p.eff/(p.eff+12):0);M[i][i]+=lam;b[i][0]+=lam*(p?priorMean(p,mu):mu)});
   al.forEach(a=>a.teams.forEach(t=>{const i=ix[t];b[i][0]+=a.score;a.teams.forEach(u=>M[i][ix[u]]++)}));
-  for(let i=0;i<n;i++)M[i][i]+=lam;
   const X=solve(M,b),r={};teams.forEach((t,i)=>r[t]=X[i][0]);
   return{r,mu};
 }
 const proj=(R,ts)=>ts.reduce((s,t)=>s+(R.r[t]??R.mu),0);
-// Every row is predicted using ONLY qualification matches played before it, so the track record is honest.
-function buildPred(ms){
+// Every row is predicted using ONLY qualification matches played before it (plus team history), so the track record is honest.
+function buildPred(ms,prior){
+  prior=prior||{};
   const ok=m=>m.alliances.red.score>=0&&m.alliances.blue.score>=0;
   const mk=(m,c)=>({teams:m.alliances[c].team_keys.map(k=>k.slice(3)),score:m.alliances[c].score});
   const co={qm:0,ef:1,qf:2,sf:3,f:4};
   const all=ms.filter(m=>m.alliances&&m.alliances.red.team_keys.length&&m.alliances.blue.team_keys.length).sort((a,b)=>co[a.comp_level]-co[b.comp_level]||a.set_number-b.set_number||a.match_number-b.match_number);
+  const evTeams=[...new Set(all.flatMap(m=>m.alliances.red.team_keys.concat(m.alliances.blue.team_keys)).map(k=>k.slice(3)))];
+  const covered=evTeams.length&&evTeams.filter(t=>prior[t]).length/evTeams.length>=.6;
   const qd=all.filter(m=>m.comp_level==='qm'&&ok(m)),al=qd.map(m=>[mk(m,'red'),mk(m,'blue')]);
-  const flatTo=k=>al.slice(0,k).flat(),cache={},fit=k=>cache[k]||(cache[k]=fitRatings(flatTo(k)));
+  const muAll=al.length?al.flat().reduce((s,a)=>s+a.score,0)/al.length/2/3:0;
+  const flatTo=k=>al.slice(0,k).flat(),cache={},fit=k=>cache[k]||(cache[k]=fitRatings(flatTo(k),{prior,teams:evTeams,mu:muAll}));
   const Rfin=fit(al.length),rows=[],errs=[];
   for(const m of all){
     const q=m.comp_level==='qm',k=q?qd.filter(x=>x.match_number<m.match_number).length:al.length,Rm=fit(k);
     const red=m.alliances.red.team_keys.map(x=>x.slice(3)),blue=m.alliances.blue.team_keys.map(x=>x.slice(3));
-    const row={m,label:q?'Q'+m.match_number:m.comp_level.toUpperCase()+' '+(m.comp_level==='f'?'':m.set_number+'-')+m.match_number,red,blue,pr:proj(Rm,red),pb:proj(Rm,blue),played:ok(m),rs:m.alliances.red.score,bs:m.alliances.blue.score,thin:k*2<12};
+    const row={m,label:q?'Q'+m.match_number:m.comp_level.toUpperCase()+' '+(m.comp_level==='f'?'':m.set_number+'-')+m.match_number,red,blue,pr:proj(Rm,red),pb:proj(Rm,blue),played:ok(m),rs:m.alliances.red.score,bs:m.alliances.blue.score,thin:k*2<12&&!covered};
     if(row.played&&!row.thin)errs.push((row.rs-row.bs)-(row.pr-row.pb));
     rows.push(row);
   }
@@ -568,12 +589,35 @@ function buildPred(ms){
 const MC={};
 async function getMatchesFor(k,force){if(force||!MC[k])MC[k]=await tba('/event/'+k+'/matches');return MC[k]}
 const getMatches=force=>getMatchesFor(ev.key,force);
+// Team history: each team's matches this season (before the event) and the previous two seasons, from TBA.
+async function pool(items,n,fn){let i=0;await Promise.all(Array.from({length:n},async()=>{while(i<items.length)await fn(items[i++])}))}
+const TM={};
+const teamMatches=(t,y)=>TM[t+'|'+y]||(TM[t+'|'+y]=tba('/team/frc'+t+'/matches/'+y).catch(()=>[]));
+async function loadPriors(teams,year,o,prog){
+  const res={},jobs=[];let done=0;
+  teams.forEach(t=>o.ds.forEach(d=>jobs.push([t,d])));
+  await pool(jobs,8,async([t,d])=>{
+    let ms=await teamMatches(t,year-d);
+    if(d===0)ms=ms.filter(x=>x.event_key!==o.exclude&&(x.time||x.predicted_time||0)<o.cutoff);
+    const r=rsiOf(ms,t);if(r)(res[t]=res[t]||[]).push({...r,d});
+    if(prog)prog(++done,jobs.length);
+  });
+  const pri={};let sc=null;
+  for(const t in res){const m=mergeRSI(res[t]);if(m)pri[t]=m;const lp=res[t].sort((a,b)=>a.d-b.d)[0];if(!sc||lp.d<sc.d)sc={d:lp.d,mu:lp.mu,sd:lp.sd}}
+  return{pri,scale:sc};
+}
 let PR=null;
 async function loadPred(force){
   if(!ev){PR=null;$('pmInfo').textContent=t('pickEvent');$('pmList').innerHTML='';return null}
   if(!force&&PR&&PR.key===ev.key)return PR;
   $('pmInfo').textContent=t('loading');
-  try{PR=buildPred(await getMatches(force));PR.key=ev.key}catch(e){PR=null;$('pmInfo').textContent=e.message}
+  try{
+    const ms=await getMatches(force);
+    const teams=[...new Set(ms.filter(m=>m.alliances).flatMap(m=>m.alliances.red.team_keys.concat(m.alliances.blue.team_keys)).map(k=>k.slice(3)))];
+    const times=ms.map(m=>m.time||m.predicted_time).filter(Boolean),cutoff=times.length?Math.min(...times):Infinity;
+    const {pri}=await loadPriors(teams,+ev.year,{cutoff,exclude:ev.key,ds:[0,1,2]},(d,n)=>{$('pmInfo').textContent=t('loading')+' '+d+'/'+n});
+    PR=buildPred(ms,pri);PR.key=ev.key;PR.hist=Object.keys(pri).length;PR.nt=teams.length;
+  }catch(e){PR=null;$('pmInfo').textContent=e.message}
   return PR;
 }
 // Confidence = the projected winner's win probability. Projected scores sit at the ends of the meter; the red share of the bar is red's win chance.
@@ -584,7 +628,7 @@ function renderEvt(){
   if(!PR)return;
   const f=$('pmF').value,q=$('pmQ').value.trim();
   const rows=PR.rows.filter(r=>(f==='all'||(f==='played')===r.played)&&(!q||r.red.concat(r.blue).includes(q)));
-  $('pmInfo').textContent=ev.name+' · '+(PR.acc.n?'called '+PR.acc.ok+' of '+PR.acc.n+' played matches ('+Math.round(100*PR.acc.ok/PR.acc.n)+'%), each predicted from earlier matches only':'not enough played matches to score the model yet')+' · typical margin error ±'+Math.round(PR.sigma)+' pts';
+  $('pmInfo').textContent=ev.name+' · '+(PR.acc.n?'called '+PR.acc.ok+' of '+PR.acc.n+' played matches ('+Math.round(100*PR.acc.ok/PR.acc.n)+'%), each predicted from earlier matches only':'not enough played matches to score the model yet')+' · typical margin error ±'+Math.round(PR.sigma)+' pts · history for '+PR.hist+'/'+PR.nt+' teams (earlier matches this season and the last two)';
   $('pmList').innerHTML=rows.map(r=>{
     const pw=r.pr>=r.pb?'red':'blue',real=!r.played?null:r.rs===r.bs?'tie':r.rs>r.bs?'red':'blue';
     const mark=real&&real!=='tie'?(pw===real?' <span class="ok">✓</span>':' <span class="no">✗</span>'):'';
@@ -612,7 +656,13 @@ async function loadCustom(teams,y){
     teams.forEach(t=>{const c=al.filter(a=>a.teams.includes(t)).length;if(c){rat[t]=(rat[t]||0)+R.r[t]*c;cnt[t]=(cnt[t]||0)+c}});
   }
   teams.forEach(t=>{if(cnt[t])rat[t]/=cnt[t]});
-  CU={key,R:{r:rat,mu:mus.length?mus.reduce((x,z)=>x+z)/mus.length:0},cnt,events:mus.length,sigma:nn>=20?Math.max(10,1.25*Math.sqrt(2*ss/nn)):30};
+  let mu=mus.length?mus.reduce((x,z)=>x+z)/mus.length:0,sigma=nn>=20?Math.max(10,1.25*Math.sqrt(2*ss/nn)):30;
+  // History: the previous two seasons, converted to points with this season's scale (or the last season's scale if there is no data yet).
+  const {pri,scale}=await loadPriors(teams,+y,{cutoff:Infinity,exclude:'',ds:[1,2]});
+  if(!mu&&scale){mu=scale.mu;sigma=Math.max(10,.8*scale.sd)}
+  const hist={};
+  teams.forEach(t=>{const p=pri[t];if(!p||!mu)return;const lam=1.5+4*p.eff/(p.eff+12),c=cnt[t]||0;rat[t]=((rat[t]||0)*c+lam*priorMean(p,mu))/(c+lam);hist[t]=1});
+  CU={key,R:{r:rat,mu},cnt,hist,events:mus.length,sigma};
   return CU;
 }
 function renderCust(){
@@ -621,9 +671,9 @@ function renderCust(){
   const tok=++cuTok;$('cuInfo').textContent=t('loading');
   loadCustom(teams,y).then(C=>{
     if(tok!==cuTok)return;
-    const pr=proj(C.R,r),pb=proj(C.R,b),p=Phi((pr-pb)/C.sigma),thin=teams.some(x=>(C.cnt[x]||0)<8),pw=pr>=pb?'red':'blue';
-    const chip=(x,c)=>'<span class="'+c+'">'+esc(x)+': '+(C.cnt[x]?fmt(C.R.r[x])+' ('+C.cnt[x]+' matches)':'no data')+'</span>';
-    $('cuInfo').textContent='TBA '+y+' qualification data from '+C.events+' event(s) · teams with no data count as an average team · typical margin error ±'+Math.round(C.sigma)+' pts';
+    const pr=proj(C.R,r),pb=proj(C.R,b),p=Phi((pr-pb)/C.sigma),thin=teams.some(x=>(C.cnt[x]||0)<8&&!C.hist[x]),pw=pr>=pb?'red':'blue';
+    const chip=(x,c)=>'<span class="'+c+'">'+esc(x)+': '+(C.R.r[x]!=null?fmt(C.R.r[x])+' ('+(C.cnt[x]||0)+' matches'+(C.hist[x]?' + history':'')+')':'no data')+'</span>';
+    $('cuInfo').textContent='TBA '+y+' qualification data from '+C.events+' event(s) plus the last two seasons · teams with no data count as an average team · typical margin error ±'+Math.round(C.sigma)+' pts';
     $('cuOut').innerHTML='<div class="pm">'+meter(pr,pb,p)+'<div class="pmr"><div>Projected winner<br>'+side(pw)+' · '+confTxt(p,thin)+'</div><div>Projected score<br>'+Math.round(pr)+' – '+Math.round(pb)+'</div></div>'
      +'<div class="pmt" style="margin-top:8px"><span>'+r.map(x=>chip(x,'r')).join('<br>')+'</span><span style="text-align:right">'+b.map(x=>chip(x,'b')).join('<br>')+'</span></div></div>';
   }).catch(e=>{if(tok===cuTok)$('cuInfo').textContent=e.message});
