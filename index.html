@@ -1,14 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<link rel="icon" type="image/png" href="favicon.png">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>TitanScout</title>
-<style>
-:root{--bg:#404b9d;--card:#fff;--fg:#14171c;--mut:#666d78;--line:#d9dde3;--acc:#2f6fed;--field:#e9edf2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101216;--card:#1a1d23;--fg:#eceff3;--mut:#9aa2ad;--line:#2c313a;--acc:#6b9bff;--field:#232831}}
-:root[data-theme="dark"]{--bg:#101216;--card:#1a1d23;--fg:#eceff3;--mut:#9aa2ad;--line:#2c313a;--acc:#6b9bff;--field:#232831}
+  <head>
+   <link rel="icon" type="image/png" href="favicon.png">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TitanScout</title>
+    <style>
+
+:root{--bg:#cdcfde;--card:#fff;--fg:#404b9d;--mut:#666d78;--line:#d9dde3;--acc:#2f6fed;--field:#e9edf2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+
+@media (prefers-color-scheme:light){
+  /* System theme */
+  /*organize the rules so that the system theme is the default, and the light/dark buttons override it. */
+  /*
+  -bg is background
+  -card is 
+  - fg is foreground
+  -mut is muted text also known as secondary text
+  -line is the outline of cards and buttons
+  -acc is accent color for buttons and highlights
+  -field is the field background. For this, it uses github to get the field icon
+  */
+  /*Light mode. */
+  :root:not([data-theme="light"]){--bg:#101216;--card:#1a1d23;--fg:#eceff3;--mut:#9aa2ad;--line:#2c313a;--acc:#6b9bff;--field:#232831}}
+  /*Dark mode */
+  :root[data-theme="dark"]{--bg:#101216;--card:#1a1d23;--fg:#eceff3;--mut:#9aa2ad;--line:#404b9d;--acc:#6b9bff;--field:#232831}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif}
 main{max-width:900px;margin:0 auto;padding:12px}
@@ -26,6 +42,7 @@ textarea{width:100%;height:80px;font-size:12px}
 .hide{display:none}
 table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 .x{padding:2px 8px}
+
 /* Fallback fade for browsers without View Transitions; the circular reveal below replaces it where supported. */
 body,.card,button,select,input,textarea,canvas{transition:background-color .4s,color .4s,border-color .4s}
 ::view-transition-old(root),::view-transition-new(root){animation:none;mix-blend-mode:normal}
@@ -33,6 +50,7 @@ body,.card,button,select,input,textarea,canvas{transition:background-color .4s,c
 .ts td:first-child,.ts th:first-child{position:sticky;left:0;background:var(--card);font-weight:600}
 .ts tr.hi td{background:rgba(232,163,0,.2)}
 details summary{cursor:pointer;padding:6px 0}
+
 @media (max-width:600px){.ts{font-size:12px}th,td{padding:5px 6px}}
 .pm{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
 .pmh{display:flex;justify-content:space-between;margin-bottom:6px}
@@ -45,11 +63,11 @@ details summary{cursor:pointer;padding:6px 0}
 .pmr{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;font-size:13px}
 .pmr>div{padding:6px 8px;border:1px solid var(--line);border-radius:8px}
 .rw{color:#d9443f}.bw{color:#3b6fe0}.ok{color:#18a058;font-weight:700}.no{color:#d9443f;font-weight:700}
-</style>
+   </style>
 </head>
 <body>
 <main>
-<h1>TitanScout</h1>
+<h1>TitanScout v2.0.1</h1>
 
 <!-- GLOBAL EVENT BAR: key + event search live here so every tab works on one event. -->
 <section class="card" id="evBar">
@@ -70,6 +88,7 @@ details summary{cursor:pointer;padding:6px 0}
   <button id="tCust">Custom Predictor</button>
   <button id="tData">Heatmap Import/Export</button>
   <button id="tSet">Settings</button>
+  <button id="tLog">Changelog</button>
 </div>
 
 <section id="vScout">
@@ -157,6 +176,7 @@ details summary{cursor:pointer;padding:6px 0}
     <textarea id="io" placeholder="Export fills this box. Paste JSON here and press Import to merge."></textarea>
   </div>
 </section>
+
 </main>
 
 <script>
