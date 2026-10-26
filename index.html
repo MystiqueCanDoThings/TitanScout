@@ -1,2563 +1,779 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <link rel="icon" type="image/png" href="favicon.png">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>TitanScout</title>
-
-  <style>
-    /* =====================================================================
-       THEME VARIABLES
-       ---------------------------------------------------------------------
-       --bg    page background
-       --card  background of cards, buttons and inputs
-       --fg    main (foreground) text color
-       --mut   muted / secondary text color
-       --line  outline color of cards and buttons
-       --acc   accent color for active buttons and highlights
-       --field background behind the field canvases
-       The safe-area padding keeps content clear of phone notches/bars.
-       ===================================================================== */
-    :root {
-      --bg: #cdcfde;
-      --card: #fff;
-      --fg: #404b9d;
-      --mut: #666d78;
-      --line: #404b9d;
-      --acc: #2f6fed;
-      --field: #232831;
-      box-sizing: border-box;
-      padding-top: env(safe-area-inset-top, 0px);
-      padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
-
-    /* System theme: when the device is in dark mode, use the dark palette
-       unless the user forced "light" in Settings. (Light devices keep the
-       default light palette from :root above.) */
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        --bg: #101216;
-        --card: #1a1d23;
-        --fg: #eceff3;
-        --mut: #9aa2ad;
-        --line: #404b9d;
-        --acc: #6b9bff;
-        --field: #232831;
-      }
-    }
-
-    /* Dark mode: forced by the Dark button in Settings (data-theme="dark"). */
-    :root[data-theme="dark"] {
-      --bg: #101216;
-      --card: #1a1d23;
-      --fg: #eceff3;
-      --mut: #9aa2ad;
-      --line: #404b9d;
-      --acc: #6b9bff;
-      --field: #232831;
-    }
-
-
-    /* =====================================================================
-       BASE ELEMENTS
-       ===================================================================== */
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--fg);
-      font: 15px/1.4 system-ui, sans-serif;
-    }
-
-    main {
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 12px;
-    }
-
-    h1 {
-      font-size: 18px;
-      margin: 4px 0 10px;
-    }
-
-    /* Form controls share one look. */
-    button,
-    select,
-    input,
-    textarea {
-      font: inherit;
-      color: var(--fg);
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 8px 12px;
-    }
-
-    button {
-      cursor: pointer;
-    }
-
-    /* "on" = the currently selected tab / alliance / phase / theme button. */
-    button.on {
-      background: var(--acc);
-      color: #fff;
-      border-color: var(--acc);
-    }
-
-    input[type=number] {
-      width: 90px;
-    }
-
-    textarea {
-      width: 100%;
-      height: 80px;
-      font-size: 12px;
-    }
-
-    /* Canvas: scales to the card width; touch-action:none lets us draw by dragging. */
-    canvas {
-      width: 100%;
-      display: block;
-      border-radius: 8px;
-      touch-action: none;
-      background: var(--field);
-    }
-
-
-    /* =====================================================================
-       LAYOUT HELPERS
-       ===================================================================== */
-    .tabs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 10px;
-    }
-
-    .card {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 12px;
-      margin-bottom: 10px;
-    }
-
-    .row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-
-    .mut {
-      color: var(--mut);
-      font-size: 13px;
-    }
-
-    .hide {
-      display: none;
-    }
-
-    /* Small delete button in the saved-match list. */
-    .x {
-      padding: 2px 8px;
-    }
-
-    details summary {
-      cursor: pointer;
-      padding: 6px 0;
-    }
-
-
-    /* =====================================================================
-       TABLES (rankings, EPA, team stats)
-       ===================================================================== */
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      font-size: 14px;
-    }
-
-    th,
-    td {
-      padding: 6px 8px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      white-space: nowrap;
-    }
-
-    /* Team Stats table: sortable headers, sticky first column, highlight row. */
-    .ts {
-      font-size: 13px;
-    }
-
-    .ts th {
-      cursor: pointer;
-      user-select: none;
-    }
-
-    .ts td:first-child,
-    .ts th:first-child {
-      position: sticky;
-      left: 0;
-      background: var(--card);
-      font-weight: 600;
-    }
-
-    .ts tr.hi td {
-      background: rgba(232, 163, 0, .2);
-    }
-
-    @media (max-width: 600px) {
-      .ts {
-        font-size: 12px;
-      }
-
-      th,
-      td {
-        padding: 5px 6px;
-      }
-    }
-
-
-    /* =====================================================================
-       THEME TRANSITIONS
-       ===================================================================== */
-    /* Fallback fade for browsers without View Transitions;
-       the circular reveal (see setTheme in the script) replaces it where supported. */
-    body, .card, button, select, input, textarea, canvas {
-      transition: background-color .4s, color .4s, border-color .4s;
-    }
-
-    /* Turn off the default cross-fade so the clip-path animation is the only effect. */
-    ::view-transition-old(root),
-    ::view-transition-new(root) {
-      animation: none;
-      mix-blend-mode: normal;
-    }
-
-
-    /* =====================================================================
-       MATCH PREDICTOR CARDS
-       ===================================================================== */
-    .pm {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 10px;
-      margin-bottom: 8px;
-    }
-
-    /* Header: match label on the left, played/upcoming on the right. */
-    .pmh {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 6px;
-    }
-
-    /* Team numbers: red alliance left, blue alliance right. */
-    .pmt {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      font-size: 13px;
-      margin-bottom: 8px;
-    }
-
-    .pmt .r {
-      color: #d9443f;
-      font-weight: 600;
-    }
-
-    .pmt .b {
-      color: #3b6fe0;
-      font-weight: 600;
-      text-align: right;
-    }
-
-    /* Projected-score meter: the red fill's width is red's win probability. */
-    .pmeter {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-weight: 700;
-    }
-
-    .pmeter .pr {
-      color: #d9443f;
-      min-width: 42px;
-    }
-
-    .pmeter .pb {
-      color: #3b6fe0;
-      min-width: 42px;
-      text-align: right;
-    }
-
-    .pmeter .bar {
-      flex: 1;
-      height: 10px;
-      border-radius: 5px;
-      background: #3b6fe0;
-      overflow: hidden;
-    }
-
-    .pmeter .bar i {
-      display: block;
-      height: 100%;
-      background: #d9443f;
-    }
-
-    /* Projected / Actual result boxes. */
-    .pmr {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 8px;
-      font-size: 13px;
-    }
-
-    .pmr > div {
-      padding: 6px 8px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-
-    /* Alliance colors and prediction right/wrong marks. */
-    .rw { color: #d9443f; }
-    .bw { color: #3b6fe0; }
-    .ok { color: #18a058; font-weight: 700; }
-    .no { color: #d9443f; font-weight: 700; }
-
-
-    /* =====================================================================
-       CHANGELOG TAB
-       ===================================================================== */
-    .cl {
-      margin: 0 0 14px;
-    }
-
-    .cl h3 {
-      margin: 0 0 4px;
-      font-size: 15px;
-    }
-
-    .cl ul {
-      margin: 4px 0 0;
-      padding-left: 20px;
-    }
-  </style>
+<link rel="icon" type="image/png" href="favicon.png">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TitanScout</title>
+<style>
+:root{--bg:#404b9d;--card:#fff;--fg:#14171c;--mut:#666d78;--line:#d9dde3;--acc:#2f6fed;--field:#e9edf2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101216;--card:#1a1d23;--fg:#eceff3;--mut:#9aa2ad;--line:#2c313a;--acc:#6b9bff;--field:#232831}}
+:root[data-theme="dark"]{--bg:#101216;--card:#1a1d23;--fg:#eceff3;--mut:#9aa2ad;--line:#2c313a;--acc:#6b9bff;--field:#232831}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif}
+main{max-width:900px;margin:0 auto;padding:12px}
+h1{font-size:18px;margin:4px 0 10px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+button,select,input,textarea{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+button{cursor:pointer}
+button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+input[type=number]{width:90px}
+canvas{width:100%;display:block;border-radius:8px;touch-action:none;background:var(--field)}
+.mut{color:var(--mut);font-size:13px}
+textarea{width:100%;height:80px;font-size:12px}
+.hide{display:none}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+.x{padding:2px 8px}
+/* Fallback fade for browsers without View Transitions; the circular reveal below replaces it where supported. */
+body,.card,button,select,input,textarea,canvas{transition:background-color .4s,color .4s,border-color .4s}
+::view-transition-old(root),::view-transition-new(root){animation:none;mix-blend-mode:normal}
+.ts{font-size:13px}.ts th{cursor:pointer;user-select:none}
+.ts td:first-child,.ts th:first-child{position:sticky;left:0;background:var(--card);font-weight:600}
+.ts tr.hi td{background:rgba(232,163,0,.2)}
+details summary{cursor:pointer;padding:6px 0}
+@media (max-width:600px){.ts{font-size:12px}th,td{padding:5px 6px}}
+.pm{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
+.pmh{display:flex;justify-content:space-between;margin-bottom:6px}
+.pmt{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;margin-bottom:8px}
+.pmt .r{color:#d9443f;font-weight:600}.pmt .b{color:#3b6fe0;font-weight:600;text-align:right}
+.pmeter{display:flex;align-items:center;gap:8px;font-weight:700}
+.pmeter .pr{color:#d9443f;min-width:42px}.pmeter .pb{color:#3b6fe0;min-width:42px;text-align:right}
+.pmeter .bar{flex:1;height:10px;border-radius:5px;background:#3b6fe0;overflow:hidden}
+.pmeter .bar i{display:block;height:100%;background:#d9443f}
+.pmr{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;font-size:13px}
+.pmr>div{padding:6px 8px;border:1px solid var(--line);border-radius:8px}
+.rw{color:#d9443f}.bw{color:#3b6fe0}.ok{color:#18a058;font-weight:700}.no{color:#d9443f;font-weight:700}
+.tm{display:flex;align-items:center;gap:6px;min-width:120px}
+.tm img,.tm .ph{width:26px;height:26px;border-radius:4px;object-fit:contain;flex:none;background:var(--field)}
+.tm small{display:block;color:var(--mut);font-weight:400;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bdg{font-style:normal;font-size:10px;font-weight:600;border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-right:3px;color:var(--acc)}
+.pcr{display:grid;grid-template-columns:72px 30px 1fr 30px 78px auto;gap:6px;align-items:center;font-size:12px;margin-top:5px}
+.pcr span:nth-child(2){text-align:right}
+.pcr .bar{height:7px;border-radius:4px;background:#3b6fe0;overflow:hidden}.pcr .bar i{display:block;height:100%;background:#d9443f}
+.rb button{padding:3px 8px;font-size:12px}
+</style>
 </head>
-
-
 <body>
 <main>
+<h1>TitanScout</h1>
 
-  <h1>TitanScout v2.0.2</h1>
+<!-- GLOBAL EVENT BAR: key + event search live here so every tab works on one event. -->
+<section class="card" id="evBar">
+  <div class="row"><label>TBA key <input id="tbaKey" type="password" placeholder="paste key" style="width:200px"></label><button id="keySave">Save key</button><span class="mut" id="kNote">Free read key: thebluealliance.com/account. Stored on this device only.</span></div>
+  <div class="row"><input id="evQ" placeholder="Event name, code, city or state/region (e.g. casd, San Diego, California)" style="flex:1;min-width:220px"><button id="evGo">Find event</button><button id="evClear">Clear event</button></div>
+  <p id="evInfo" class="mut" style="margin:0">No event selected. Scout data and event data are shown for all events.</p>
+  <div id="evPick"></div>
+</section>
 
+<div class="row"><label>Field <select id="fieldSel"></select></label></div>
+<div class="tabs">
+  <button id="tScout" class="on">Scout</button>
+  <button id="tMap">Heatmap</button>
+  <button id="tRank">Event rankings</button>
+  <button id="tTS">Team Stats</button>
+  <button id="tRob">Robot Types</button>
+  <button id="tPred">Event Predictor</button>
+  <button id="tCust">Custom Predictor</button>
+  <button id="tData">Heatmap Import/Export</button>
+  <button id="tSet">Settings</button>
+</div>
 
-  <!-- ===================================================================
-       GLOBAL EVENT BAR
-       The TBA key and event search live here so every tab works on one event.
-       =================================================================== -->
-  <section class="card" id="evBar">
+<section id="vScout">
+  <div class="card">
     <div class="row">
-      <label>TBA key <input id="tbaKey" type="password" placeholder="paste key" style="width:200px"></label>
-      <button id="keySave">Save key</button>
-      <span class="mut" id="kNote">Free read key: thebluealliance.com/account. Stored on this device only.</span>
+      <label>Team (Number) <input id="team" type="number" placeholder="2543"></label>
+      <label>Match <input id="match" type="number" placeholder="23"></label>
     </div>
-
     <div class="row">
-      <input id="evQ" placeholder="Event name, code, city or state/region (e.g. casd, San Diego, California)" style="flex:1;min-width:220px">
-      <button id="evGo">Find event</button>
-      <button id="evClear">Clear event</button>
+      <button id="aRed" class="on">Red</button><button id="aBlue">Blue</button>
+      <span style="width:12px"></span>
+      <button id="pStart" class="on">Start</button><button id="pAuto">Auto</button><button id="pTele">Teleop</button>
     </div>
-
-    <p id="evInfo" class="mut" style="margin:0">No event selected. Scout data and event data are shown for all events.</p>
-    <div id="evPick"></div> <!-- candidate events when a search has several hits -->
-  </section>
-
-
-  <!-- Season / field image picker -->
-  <div class="row">
-    <label>Field <select id="fieldSel"></select></label>
+    <canvas id="scout" width="1000" height="525"></canvas>
+    <p class="mut" id="hHow">Start: tap where the robot begins (drag to adjust). Auto/Teleop: press and drag to follow the robot, hold still where it sits, lift if you lose it. Blue side is left, red side is right.</p>
+    <p class="mut" id="hBy">This was created by MystiqueCanDoThings.</p>
+    <div class="row"><button id="clear">Clear phase</button><button id="save">Save match</button><span id="count" class="mut"></span></div>
   </div>
+</section>
 
-
-  <!-- ===================================================================
-       TAB BUTTONS
-       Each button id is "t" + a name in the TABS array in the script.
-       =================================================================== -->
-  <div class="tabs">
-    <button id="tScout" class="on">Scout</button>
-    <button id="tMap">Heatmap</button>
-    <button id="tStat">Statbotics (EPA)</button>
-    <button id="tRank">Event rankings</button>
-    <button id="tTS">Team Stats</button>
-    <button id="tPred">Event Predictor</button>
-    <button id="tCust">Custom Predictor</button>
-    <button id="tData">Heatmap Import/Export</button>
-    <button id="tSet">Settings</button>
-    <button id="tLog">Changelog</button>
-    <button id="tLog">Credits</button>
+<section id="vMap" class="hide">
+  <div class="card">
+    <div class="row">
+      <label>Team <select id="fTeam"></select></label>
+      <label>Phase <select id="fPhase"><option value="all">All</option><option value="auto">Auto</option><option value="tele">Teleop</option></select></label>
+      <label>Radius <input id="rad" type="range" min="10" max="60" value="28"></label>
+      <label><input id="showStart" type="checkbox" checked> Starts</label>
+    </div>
+    <canvas id="heat" width="1000" height="525"></canvas>
+    <div class="row" style="margin-top:8px">
+      <label>Replay <select id="rMatch"></select></label>
+      <button id="rPlay">Play</button>
+      <label>Speed <select id="rSpd"><option value="1">1x</option><option value="2">2x</option><option value="4">4x</option></select></label>
+      <label>Heat <select id="rHeat"><option value="live">Builds as it plays</option><option value="team">Team total</option><option value="none">None</option></select></label>
+    </div>
+    <div class="row"><input id="rBar" type="range" min="0" max="0" value="0" style="flex:1"><span id="rTime" class="mut">0.0 / 0.0 s</span></div>
+    <p class="mut" id="heatInfo">Alliance-relative: the robot's own alliance is on the left (blue's view).</p>
   </div>
+</section>
 
+<section id="vRank" class="hide"><div class="card"><p id="rkInfo" class="mut"></p><div id="rkTable" style="overflow-x:auto"></div></div></section>
+<section id="vTS" class="hide">
+  <div class="card">
+    <div class="row"><p id="tsInfo" class="mut" style="margin:0;flex:1;min-width:200px"></p><button id="tsRef" title="Reload">⟳</button></div>
+    <div class="row"><input id="tsQ" placeholder="Filter team…" style="width:140px"><details id="tsCols"><summary>Columns</summary><div id="tsColList" class="row" style="max-width:100%"></div></details></div>
+    <div id="tsTable" style="overflow-x:auto"></div>
+  </div>
+  <div class="card">
+    <div class="row"><b>Chart</b>
+      <select id="cType"><option value="bar">Bar</option><option value="bubble">Bubble</option></select>
+      <label>X <select id="cX"></select></label>
+      <label id="lY" class="hide">Y <select id="cY"></select></label>
+      <label id="lS" class="hide">Size <select id="cS"></select></label>
+      <label>Top <input id="cN" type="number" value="12" min="1" style="width:70px"></label>
+      <label>Highlight <input id="cHi" placeholder="2543" style="width:90px"></label></div>
+    <canvas id="tsCanvas" style="height:360px"></canvas>
+  </div>
+</section>
 
-  <!-- ===================================================================
-       TAB: SCOUT  (record a robot's path on the field)
-       =================================================================== -->
-  <section id="vScout">
-    <div class="card">
-      <div class="row">
-        <label>Team (Number) <input id="team" type="number" placeholder="2543"></label>
-        <label>Match <input id="match" type="number" placeholder="23"></label>
-      </div>
+<section id="vRob" class="hide"><div class="card rb">
+  <p class="mut" style="margin-top:0">Tag each team's robot type (works for any team, including B teams). Saved on this device. To share with your whole team, press Export and save the text as data/robot_types.json in the repo.</p>
+  <div class="row"><input id="rbQ" placeholder="Filter…" style="width:130px"><input id="rbAdd" type="number" placeholder="Add team #" style="width:120px"><button id="rbAddB">Add</button><button id="rbExp">Export</button><button id="rbImp">Import</button></div>
+  <textarea id="rbIO" placeholder="Export fills this box. Paste JSON here and press Import."></textarea>
+  <div id="rbList" style="overflow-x:auto"></div>
+</div></section>
+<section id="vPred" class="hide"><div class="card">
+  <p id="pmInfo" class="mut" style="margin-top:0"></p>
+  <div class="row"><select id="pmF"><option value="all">All matches</option><option value="played">Played</option><option value="upcoming">Upcoming</option></select><input id="pmQ" placeholder="Filter team…" style="width:140px"><button id="pmRef" title="Reload">⟳</button></div>
+  <div id="pmList"></div>
+</div></section>
+<section id="vCust" class="hide"><div class="card">
+  <p id="cuInfo" class="mut" style="margin-top:0"></p>
+  <div class="row"><label>Season <select id="cuY"></select></label></div>
+  <div class="row"><b class="rw">Red</b><input id="cr1" type="number" placeholder="Team"><input id="cr2" type="number" placeholder="Team"><input id="cr3" type="number" placeholder="Team"></div>
+  <div class="row"><b class="bw">Blue</b><input id="cb1" type="number" placeholder="Team"><input id="cb2" type="number" placeholder="Team"><input id="cb3" type="number" placeholder="Team"></div>
+  <div id="cuOut"></div>
+</div></section>
 
-      <div class="row">
-        <!-- Which alliance the scouted robot is on -->
-        <button id="aRed" class="on">Red</button>
-        <button id="aBlue">Blue</button>
-        <span style="width:12px"></span>
-        <!-- Which phase is being recorded -->
-        <button id="pStart" class="on">Start</button>
-        <button id="pAuto">Auto</button>
-        <button id="pTele">Teleop</button>
-      </div>
+<section id="vSet" class="hide"><div class="card">
+  <div class="row"><b id="lAppear">Appearance</b></div>
+  <div class="row"><button id="thSystem">System</button><button id="thLight">Light</button><button id="thDark">Dark</button></div>
+  
+<div class="row"><b id="lLang">Language</b><select id="langSel"></select></div>
+</div></section>
 
-      <canvas id="scout" width="1000" height="525"></canvas>
-
-      <p class="mut" id="hHow">Start: tap where the robot begins (drag to adjust). Auto/Teleop: press and drag to follow the robot, hold still where it sits, lift if you lose it. Blue side is left, red side is right.</p>
-      <p class="mut" id="hBy">This was created by MystiqueCanDoThings with the aid of Claude.</p>
-
-      <div class="row">
-        <button id="clear">Clear phase</button>
-        <button id="save">Save match</button>
-        <span id="count" class="mut"></span>
-      </div>
-    </div>
-  </section>
-
-
-  <!-- ===================================================================
-       TAB: HEATMAP  (aggregate + replay of saved matches)
-       =================================================================== -->
-  <section id="vMap" class="hide">
-    <div class="card">
-      <div class="row">
-        <label>Team <select id="fTeam"></select></label>
-        <label>Phase
-          <select id="fPhase">
-            <option value="all">All</option>
-            <option value="auto">Auto</option>
-            <option value="tele">Teleop</option>
-          </select>
-        </label>
-        <label>Radius <input id="rad" type="range" min="10" max="60" value="28"></label>
-        <label><input id="showStart" type="checkbox" checked> Starts</label>
-      </div>
-
-      <canvas id="heat" width="1000" height="525"></canvas>
-
-      <!-- Replay controls -->
-      <div class="row" style="margin-top:8px">
-        <label>Replay <select id="rMatch"></select></label>
-        <button id="rPlay">Play</button>
-        <label>Speed
-          <select id="rSpd">
-            <option value="1">1x</option>
-            <option value="2">2x</option>
-            <option value="4">4x</option>
-          </select>
-        </label>
-        <label>Heat
-          <select id="rHeat">
-            <option value="live">Builds as it plays</option>
-            <option value="team">Team total</option>
-            <option value="none">None</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="row">
-        <input id="rBar" type="range" min="0" max="0" value="0" style="flex:1">
-        <span id="rTime" class="mut">0.0 / 0.0 s</span>
-      </div>
-
-      <p class="mut" id="heatInfo">Alliance-relative: the robot's own alliance is on the left (blue's view).</p>
-    </div>
-  </section>
-
-
-  <!-- ===================================================================
-       TABS: STATBOTICS, EVENT RANKINGS  (tables filled in by script)
-       =================================================================== -->
-  <section id="vStat" class="hide">
-    <div class="card">
-      <p id="stInfo" class="mut"></p>
-      <div id="stTable" style="overflow-x:auto"></div>
-    </div>
-  </section>
-
-  <section id="vRank" class="hide">
-    <div class="card">
-      <p id="rkInfo" class="mut"></p>
-      <div id="rkTable" style="overflow-x:auto"></div>
-    </div>
-  </section>
-
-
-  <!-- ===================================================================
-       TAB: TEAM STATS  (OPR-style table + chart builder)
-       =================================================================== -->
-  <section id="vTS" class="hide">
-
-    <!-- Table -->
-    <div class="card">
-      <div class="row">
-        <p id="tsInfo" class="mut" style="margin:0;flex:1;min-width:200px"></p>
-        <button id="tsRef" title="Reload">⟳</button>
-      </div>
-
-      <div class="row">
-        <input id="tsQ" placeholder="Filter team…" style="width:140px">
-        <details id="tsCols">
-          <summary>Columns</summary>
-          <div id="tsColList" class="row" style="max-width:100%"></div>
-        </details>
-      </div>
-
-      <div id="tsTable" style="overflow-x:auto"></div>
-    </div>
-
-    <!-- Chart builder -->
-    <div class="card">
-      <div class="row">
-        <b>Chart</b>
-        <select id="cType">
-          <option value="bar">Bar</option>
-          <option value="bubble">Bubble</option>
-        </select>
-        <label>X <select id="cX"></select></label>
-        <label id="lY" class="hide">Y <select id="cY"></select></label>
-        <label id="lS" class="hide">Size <select id="cS"></select></label>
-        <label>Top <input id="cN" type="number" value="12" min="1" style="width:70px"></label>
-        <label>Highlight <input id="cHi" placeholder="2543" style="width:90px"></label>
-      </div>
-      <canvas id="tsCanvas" style="height:360px"></canvas>
-    </div>
-  </section>
-
-
-  <!-- ===================================================================
-       TAB: EVENT PREDICTOR  (every match of the selected event)
-       =================================================================== -->
-  <section id="vPred" class="hide">
-    <div class="card">
-      <p id="pmInfo" class="mut" style="margin-top:0"></p>
-
-      <div class="row">
-        <select id="pmF">
-          <option value="all">All matches</option>
-          <option value="played">Played</option>
-          <option value="upcoming">Upcoming</option>
-        </select>
-        <input id="pmQ" placeholder="Filter team…" style="width:140px">
-        <button id="pmRef" title="Reload">⟳</button>
-      </div>
-
-      <div id="pmList"></div>
-    </div>
-  </section>
-
-
-  <!-- ===================================================================
-       TAB: CUSTOM PREDICTOR  (any 3 vs 3, independent of the event)
-       =================================================================== -->
-  <section id="vCust" class="hide">
-    <div class="card">
-      <p id="cuInfo" class="mut" style="margin-top:0"></p>
-
-      <div class="row">
-        <label>Season <select id="cuY"></select></label>
-      </div>
-
-      <div class="row">
-        <b class="rw">Red</b>
-        <input id="cr1" type="number" placeholder="Team">
-        <input id="cr2" type="number" placeholder="Team">
-        <input id="cr3" type="number" placeholder="Team">
-      </div>
-
-      <div class="row">
-        <b class="bw">Blue</b>
-        <input id="cb1" type="number" placeholder="Team">
-        <input id="cb2" type="number" placeholder="Team">
-        <input id="cb3" type="number" placeholder="Team">
-      </div>
-
-      <div id="cuOut"></div>
-    </div>
-  </section>
-
-
-  <!-- ===================================================================
-       TAB: CHANGELOG  (filled in by renderLog from the CHANGELOG array)
-       =================================================================== -->
-  <section id="vLog" class="hide">
-    <div class="card">
-      <div class="row"><b id="logTitle">Changelog</b></div>
-      <div id="logList"></div>
-    </div>
-  </section>
-
-
-  <!-- ===================================================================
-       TAB: SETTINGS  (theme + language)
-       =================================================================== -->
-  <section id="vSet" class="hide">
-    <div class="card">
-      <div class="row"><b id="lAppear">Appearance</b></div>
-      <div class="row">
-        <button id="thSystem">System</button>
-        <button id="thLight">Light</button>
-        <button id="thDark">Dark</button>
-      </div>
-
-      <div class="row">
-        <b id="lLang">Language</b>
-        <select id="langSel"></select>
-      </div>
-    </div>
-  </section>
-
-
-  <!-- ===================================================================
-       TAB: HEATMAP IMPORT / EXPORT  (saved matches list + JSON box)
-       =================================================================== -->
-  <section id="vData" class="hide">
-    <div class="card">
-      <div class="row"><b id="listTitle">Saved matches</b></div>
-      <div id="list"></div>
-    </div>
-
-    <div class="card">
-      <div class="row">
-        <button id="exp">Export JSON</button>
-        <button id="imp">Import JSON</button>
-      </div>
-      <textarea id="io" placeholder="Export fills this box. Paste JSON here and press Import to merge."></textarea>
-    </div>
-  </section>
-
+<section id="vData" class="hide">
+  <div class="card"><div class="row"><b id="listTitle">Saved matches</b></div><div id="list"></div></div>
+  <div class="card">
+    <div class="row"><button id="exp">Export JSON</button><button id="imp">Import JSON</button></div>
+    <textarea id="io" placeholder="Export fills this box. Paste JSON here and press Import to merge."></textarea>
+  </div>
+</section>
 </main>
 
-
 <script>
-/* =========================================================================
-   TITANSCOUT
-   -------------------------------------------------------------------------
-   Sections of this file, in order:
-     1.  Constants, helpers and saved state
-     2.  Field images
-     3.  Scouting canvas (record a match)
-     4.  Tab switching
-     5.  Heatmap + replay
-     6.  Saved-match list + JSON import/export
-     7.  The Blue Alliance (TBA): event bar + rankings
-     8.  Statbotics (EPA)
-     9.  Team Stats (OPR-style table + charts)
-     10. Match predictor (event + custom)
-     11. Theme (System / Light / Dark)
-     12. Language (i18n)
-     13. Start-up
-
-   Match shape (stored in localStorage under KEY):
-     { team, match, alliance, field, event,
-       start: {x,y} | null,
-       auto:  [{x,y,t}],
-       tele:  [{x,y,t}] }
-   x/y are 0-1 field fractions, ALLIANCE-RELATIVE (blue's side on the left).
-   t is milliseconds since the phase began.
-   ========================================================================= */
-
-
-/* =========================================================================
-   1. CONSTANTS, HELPERS AND SAVED STATE
-   ========================================================================= */
-
-const W   = 1000;                // canvas width in px (height H is derived from the field image)
-const KEY = 'frcHeatmapMatches'; // localStorage key for saved matches
-let   H   = 525;                 // canvas height; recalculated when the field image loads
-
-// Short DOM lookup by id.
-const $ = id => document.getElementById(id);
-
-// Escapes text before it goes into innerHTML (prevents HTML injection from imported data).
-const esc = t => String(t).replace(/[&<>"']/g, c => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-}[c]));
-
-// Rounds to 4 decimals (keeps stored coordinates small).
-const r4 = n => Math.round(n * 1e4) / 1e4;
-
-// ---- Core app state ----
-let matches  = [];       // every saved match
-let alliance = 'red';    // alliance of the robot currently being scouted
-let phase    = 'start';  // 'start' | 'auto' | 'tele'
-let tab      = 'Scout';  // current tab name (one of TABS below)
-
-// ---- In-progress recording ----
-let cur   = { auto: [], tele: [], start: null }; // points for the match being scouted (sx/sy = screen fractions)
-let down  = false;   // is the pointer currently pressed on the scout canvas?
-let pos   = null;    // latest pointer position {x,y} as 0-1 fractions
-let timer = null;    // interval id that samples the pointer every 120 ms
-let t0    = {};      // per-phase start time (ms) used to compute each point's "t"
-
-// Load saved matches; fall back to an empty list if storage is empty or corrupt.
-try { matches = JSON.parse(localStorage.getItem(KEY) || '[]'); }
-catch (e) { matches = []; }
-
-// Saves matches to localStorage.
+// Match shape: {team, match, alliance, field, event, start:{x,y}|null, auto:[{x,y,t}], tele:[{x,y,t}]}
+// x/y are 0-1 field fractions, alliance-relative (blue on the left). t = ms since the phase began. Stored in localStorage.
+const W=1000,KEY='frcHeatmapMatches';let H=525;
+const $=id=>document.getElementById(id);
+const esc=t=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const r4=n=>Math.round(n*1e4)/1e4;
+let matches=[],alliance='red',phase='start',tab='Scout';
+let cur={auto:[],tele:[],start:null},down=false,pos=null,timer=null,t0={};
+try{matches=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){matches=[]}
 // Returns false (and warns) when the browser refuses the write, so scouts never lose data silently.
-function persist() {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(matches));
-    return true;
-  } catch (e) {
-    alert(t('storeFail'));
-    return false;
-  }
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(matches));return true}catch(e){alert(t('storeFail'));return false}}
+
+const FIELDS=[['images/field26.png','2026'],['images/field25.png','2025'],['images/field24.png','2024'],['images/field23.png','2023'],['images/field22.png','2022']];
+const LEFT='blue';
+let fieldSrc='images/field26.png',ev=null;
+try{const sv=localStorage.getItem('frcField');if(sv&&FIELDS.some(f=>f[0]===sv))fieldSrc=sv;ev=JSON.parse(localStorage.getItem('frcEv')||'null')}catch(e){}
+const fk=m=>!m.field||m.field==='field.png'?FIELDS[0][0]:m.field;
+// A match is shown when it matches the field/season and, if an event is selected, that event.
+const inSeason=m=>fk(m)===fieldSrc&&(!ev||m.event===ev.key),sm=()=>matches.filter(inSeason);
+const seasonYear=()=>(FIELDS.find(f=>f[0]===fieldSrc)||FIELDS[0])[1];
+
+const fieldImg=new Image();
+fieldImg.onload=()=>{H=Math.round(W*fieldImg.naturalHeight/fieldImg.naturalWidth);$('scout').height=H;$('heat').height=H;drawTrace();if(tab==='Map')renderHeat()};
+$('fieldSel').innerHTML=FIELDS.map(f=>'<option value="'+f[0]+'">'+f[1]+'</option>').join('');
+$('fieldSel').value=fieldSrc;
+function setField(src){fieldSrc=src;$('fieldSel').value=src;try{localStorage.setItem('frcField',src)}catch(e){}fieldImg.src=src}
+$('fieldSel').onchange=()=>{setField($('fieldSel').value);show(tab)};
+fieldImg.src=fieldSrc;
+
+function drawField(c){const g=c.getContext('2d');g.clearRect(0,0,W,H);if(fieldImg.complete&&fieldImg.naturalWidth)g.drawImage(fieldImg,0,0,W,H)}
+// Square marker centered on x,y (the old version drew from the corner, so it sat 20px off).
+function marker(g,x,y,col){
+  const p=()=>{g.beginPath();g.roundRect(x-20,y-20,40,40,7)};
+  g.lineWidth=5;g.strokeStyle='#fff';p();g.stroke();
+  g.lineWidth=3;g.strokeStyle=col;p();g.stroke();
+  g.fillStyle=col;p();g.fill();
 }
+function drawTrace(){
+  const c=$('scout');drawField(c);const g=c.getContext('2d');
+  [['auto','#e8a300'],['tele','#2f6fed']].forEach(([p,col])=>{g.fillStyle=col;cur[p].forEach(q=>{g.beginPath();g.arc(q.sx*W,q.sy*H,5,0,7);g.fill()})});
+  if(cur.start)marker(g,cur.start.sx*W,cur.start.sy*H,'#00b36b');
+  $('count').textContent=(cur.start?t('startSet'):t('noStart'))+' · '+t('auto')+' '+cur.auto.length+' '+t('pts')+' · '+t('tele')+' '+cur.tele.length+' '+t('pts');
+}
+function evPos(e){const r=$('scout').getBoundingClientRect();return{x:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))}}
+function sample(){if(!down||!pos)return;if(t0[phase]==null)t0[phase]=Date.now();cur[phase].push({sx:pos.x,sy:pos.y,t:Date.now()-t0[phase]});drawTrace()}
+const sc=$('scout');
+sc.addEventListener('pointerdown',e=>{down=true;pos=evPos(e);sc.setPointerCapture(e.pointerId);
+  if(phase==='start'){cur.start={sx:pos.x,sy:pos.y};drawTrace();return}
+  sample();timer=setInterval(sample,120)});
+sc.addEventListener('pointermove',e=>{if(!down)return;pos=evPos(e);if(phase==='start'){cur.start={sx:pos.x,sy:pos.y};drawTrace()}});
+const stop=()=>{down=false;clearInterval(timer)};
+sc.addEventListener('pointerup',stop);sc.addEventListener('pointercancel',stop);
 
-
-/* =========================================================================
-   2. FIELD IMAGES
-   ========================================================================= */
-
-// [image path, season label]. The first entry is the default / newest season.
-const FIELDS = [
-  ['images/field26.png', '2026'],
-  ['images/field25.png', '2025'],
-  ['images/field24.png', '2024'],
-  ['images/field23.png', '2023'],
-  ['images/field22.png', '2022']
-];
-
-// The alliance whose side of the field is drawn on the left of the canvas.
-const LEFT = 'blue';
-
-let fieldSrc = 'images/field26.png'; // currently selected field image
-let ev       = null;                 // currently selected TBA event {key, name, year} or null
-
-// Restore the last field and event from localStorage (ignore unknown field paths).
-try {
-  const sv = localStorage.getItem('frcField');
-  if (sv && FIELDS.some(f => f[0] === sv)) fieldSrc = sv;
-  ev = JSON.parse(localStorage.getItem('frcEv') || 'null');
-} catch (e) {}
-
-// A match's field path. Old matches saved before field choice existed (or as 'field.png') count as the newest field.
-const fk = m => !m.field || m.field === 'field.png' ? FIELDS[0][0] : m.field;
-
-// A match is visible when it belongs to the chosen field/season AND, if an event is selected, that event.
-const inSeason = m => fk(m) === fieldSrc && (!ev || m.event === ev.key);
-const sm       = () => matches.filter(inSeason);   // visible matches only
-
-// Year label for the selected field image (e.g. '2026').
-const seasonYear = () => (FIELDS.find(f => f[0] === fieldSrc) || FIELDS[0])[1];
-
-// The field image object drawn behind everything.
-const fieldImg = new Image();
-
-// Once the image loads, size the canvases to its aspect ratio and redraw.
-fieldImg.onload = () => {
-  H = Math.round(W * fieldImg.naturalHeight / fieldImg.naturalWidth);
-  $('scout').height = H;
-  $('heat').height  = H;
-  drawTrace();
-  if (tab === 'Map') renderHeat();
+function pick(ids,on){ids.forEach(id=>$(id).classList.toggle('on',id===on))}
+$('aRed').onclick=()=>{alliance='red';pick(['aRed','aBlue'],'aRed')};
+$('aBlue').onclick=()=>{alliance='blue';pick(['aRed','aBlue'],'aBlue')};
+[['pStart','start'],['pAuto','auto'],['pTele','tele']].forEach(([id,p])=>$(id).onclick=()=>{phase=p;pick(['pStart','pAuto','pTele'],id)});
+$('clear').onclick=()=>{if(phase==='start')cur.start=null;else{cur[phase]=[];delete t0[phase]}drawTrace()};
+const mkey=m=>[m.team,m.match,fk(m),m.event||''].join('|');
+// Save: rotate the other alliance 180 degrees, round coordinates to 4 decimals (keeps storage small), tag with event, replace duplicates after confirming.
+$('save').onclick=()=>{
+  const team=$('team').value,match=$('match').value;
+  if(!team||!match){alert(t('enterNums'));return}
+  if(!cur.start&&!cur.auto.length&&!cur.tele.length){alert(t('nothingRec'));return}
+  const flip=p=>alliance!==LEFT?{x:r4(1-p.sx),y:r4(1-p.sy),t:p.t}:{x:r4(p.sx),y:r4(p.sy),t:p.t};
+  const m={team:+team,match:+match,alliance,field:fieldSrc,event:ev?ev.key:null,start:cur.start?flip(cur.start):null,auto:cur.auto.map(flip),tele:cur.tele.map(flip)};
+  const i=matches.findIndex(o=>mkey(o)===mkey(m));
+  if(i>=0){if(!confirm(t('replaceQ')))return;matches[i]=m}else matches.push(m);
+  if(!persist())return;
+  cur={auto:[],tele:[],start:null};t0={};drawTrace();$('match').value=+match+1;$('team').value='';
 };
 
-// Fill the field dropdown and select the current field.
-$('fieldSel').innerHTML = FIELDS.map(f => '<option value="' + f[0] + '">' + f[1] + '</option>').join('');
-$('fieldSel').value = fieldSrc;
-
-// Switches the field image, remembers it, and reloads the picture.
-function setField(src) {
-  fieldSrc = src;
-  $('fieldSel').value = src;
-  try { localStorage.setItem('frcField', src); } catch (e) {}
-  fieldImg.src = src;
+// ===== Tabs =====
+const TABS=['Scout','Map','Rank','TS','Rob','Pred','Cust','Data','Set'];
+function show(v){
+  tab=v;rp.playing=false;$('rPlay').textContent=t('play');
+  TABS.forEach(n=>{$('v'+n).classList.toggle('hide',n!==v);$('t'+n).classList.toggle('on',n===v)});
+  if(v==='Map'){fillTeams();renderHeat()}
+  if(v==='Data')renderList();
+  if(v==='Rank')loadRank();
+  if(v==='TS')loadTS();
+  if(v==='Rob')loadRob();
+  if(v==='Pred')loadPred().then(renderEvt);
+  if(v==='Cust')renderCust();
 }
+TABS.forEach(n=>$('t'+n).onclick=()=>show(n));
 
-$('fieldSel').onchange = () => { setField($('fieldSel').value); show(tab); };
-fieldImg.src = fieldSrc; // kick off the first image load
-
-// Clears a canvas and draws the field image on it.
-function drawField(c) {
-  const g = c.getContext('2d');
-  g.clearRect(0, 0, W, H);
-  if (fieldImg.complete && fieldImg.naturalWidth) g.drawImage(fieldImg, 0, 0, W, H);
-}
-
-// Draws a rounded square marker centered on x,y (white outline, colored fill).
-// (The old version drew from the corner, so it sat 20px off.)
-function marker(g, x, y, col) {
-  const p = () => { g.beginPath(); g.roundRect(x - 20, y - 20, 40, 40, 7); };
-
-  g.lineWidth = 5; g.strokeStyle = '#fff'; p(); g.stroke();   // outer white outline
-  g.lineWidth = 3; g.strokeStyle = col;    p(); g.stroke();   // inner colored outline
-  g.fillStyle = col;                       p(); g.fill();     // fill
-}
-
-
-/* =========================================================================
-   3. SCOUTING CANVAS (record a match)
-   ========================================================================= */
-
-// Redraws the scout canvas: field, auto dots (gold), teleop dots (blue), start marker (green), plus the status line.
-function drawTrace() {
-  const c = $('scout');
-  drawField(c);
-  const g = c.getContext('2d');
-
-  // Dots for each recorded sample.
-  [['auto', '#e8a300'], ['tele', '#2f6fed']].forEach(([p, col]) => {
-    g.fillStyle = col;
-    cur[p].forEach(q => {
-      g.beginPath();
-      g.arc(q.sx * W, q.sy * H, 5, 0, 7);
-      g.fill();
-    });
-  });
-
-  // Start marker.
-  if (cur.start) marker(g, cur.start.sx * W, cur.start.sy * H, '#00b36b');
-
-  // Status text: "Start set · Auto 12 pts · Teleop 40 pts".
-  $('count').textContent =
-    (cur.start ? t('startSet') : t('noStart')) + ' · ' +
-    t('auto') + ' ' + cur.auto.length + ' ' + t('pts') + ' · ' +
-    t('tele') + ' ' + cur.tele.length + ' ' + t('pts');
-}
-
-// Converts a pointer event to 0-1 fractions of the canvas, clamped to the field.
-function evPos(e) {
-  const r = $('scout').getBoundingClientRect();
-  return {
-    x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
-    y: Math.min(1, Math.max(0, (e.clientY - r.top)  / r.height))
-  };
-}
-
-// Records one point at the current pointer position (only while pressed).
-// The first sample of a phase sets that phase's time zero.
-function sample() {
-  if (!down || !pos) return;
-  if (t0[phase] == null) t0[phase] = Date.now();
-  cur[phase].push({ sx: pos.x, sy: pos.y, t: Date.now() - t0[phase] });
-  drawTrace();
-}
-
-const sc = $('scout');
-
-// Press: in the Start phase place the start marker; otherwise sample now and keep sampling every 120 ms.
-sc.addEventListener('pointerdown', e => {
-  down = true;
-  pos = evPos(e);
-  sc.setPointerCapture(e.pointerId);
-
-  if (phase === 'start') {
-    cur.start = { sx: pos.x, sy: pos.y };
-    drawTrace();
-    return;
-  }
-
-  sample();
-  timer = setInterval(sample, 120);
-});
-
-// Move: update the position; in the Start phase the marker follows the finger.
-sc.addEventListener('pointermove', e => {
-  if (!down) return;
-  pos = evPos(e);
-  if (phase === 'start') {
-    cur.start = { sx: pos.x, sy: pos.y };
-    drawTrace();
-  }
-});
-
-// Release / cancel: stop sampling.
-const stop = () => { down = false; clearInterval(timer); };
-sc.addEventListener('pointerup', stop);
-sc.addEventListener('pointercancel', stop);
-
-// Highlights one button in a group and un-highlights the rest.
-function pick(ids, on) {
-  ids.forEach(id => $(id).classList.toggle('on', id === on));
-}
-
-// Alliance buttons.
-$('aRed').onclick  = () => { alliance = 'red';  pick(['aRed', 'aBlue'], 'aRed');  };
-$('aBlue').onclick = () => { alliance = 'blue'; pick(['aRed', 'aBlue'], 'aBlue'); };
-
-// Phase buttons (Start / Auto / Teleop).
-[['pStart', 'start'], ['pAuto', 'auto'], ['pTele', 'tele']].forEach(([id, p]) =>
-  $(id).onclick = () => { phase = p; pick(['pStart', 'pAuto', 'pTele'], id); }
-);
-
-// Clear the current phase only.
-$('clear').onclick = () => {
-  if (phase === 'start') cur.start = null;
-  else { cur[phase] = []; delete t0[phase]; }
-  drawTrace();
-};
-
-// Unique identity of a match: team | match number | field | event (used to detect duplicates).
-const mkey = m => [m.team, m.match, fk(m), m.event || ''].join('|');
-
-// SAVE MATCH
-//  - rotates the other alliance's points 180 degrees so every match is blue-on-the-left
-//  - rounds coordinates to 4 decimals (keeps storage small)
-//  - tags the match with the selected event
-//  - replaces a duplicate only after the scout confirms
-$('save').onclick = () => {
-  const team = $('team').value, match = $('match').value;
-
-  if (!team || !match) { alert(t('enterNums')); return; }
-  if (!cur.start && !cur.auto.length && !cur.tele.length) { alert(t('nothingRec')); return; }
-
-  // Convert a screen-fraction point to a stored, alliance-relative point.
-  const flip = p => alliance !== LEFT
-    ? { x: r4(1 - p.sx), y: r4(1 - p.sy), t: p.t }   // rotate 180 degrees
-    : { x: r4(p.sx),     y: r4(p.sy),     t: p.t };
-
-  const m = {
-    team:     +team,
-    match:    +match,
-    alliance,
-    field:    fieldSrc,
-    event:    ev ? ev.key : null,
-    start:    cur.start ? flip(cur.start) : null,
-    auto:     cur.auto.map(flip),
-    tele:     cur.tele.map(flip)
-  };
-
-  // Duplicate? Ask before replacing.
-  const i = matches.findIndex(o => mkey(o) === mkey(m));
-  if (i >= 0) {
-    if (!confirm(t('replaceQ'))) return;
-    matches[i] = m;
-  } else {
-    matches.push(m);
-  }
-
-  if (!persist()) return;
-
-  // Reset for the next match: clear recording, bump the match number, blank the team.
-  cur = { auto: [], tele: [], start: null };
-  t0 = {};
-  drawTrace();
-  $('match').value = +match + 1;
-  $('team').value = '';
-};
-
-
-/* =========================================================================
-   4. TAB SWITCHING
-   ========================================================================= */
-
-// Names used to build section ids ('v' + name) and button ids ('t' + name).
-const TABS = ['Scout', 'Map', 'Stat', 'Rank', 'TS', 'Pred', 'Cust', 'Data', 'Set', 'Log'];
-
-// Shows one tab, hides the others, and loads whatever data that tab needs.
-function show(v) {
-  tab = v;
-
-  // Stop any replay that was playing.
-  rp.playing = false;
-  $('rPlay').textContent = t('play');
-
-  // Toggle visibility and the highlighted button.
-  TABS.forEach(n => {
-    $('v' + n).classList.toggle('hide', n !== v);
-    $('t' + n).classList.toggle('on', n === v);
-  });
-
-  // Tab-specific loading.
-  if (v === 'Map')  { fillTeams(); renderHeat(); }
-  if (v === 'Data') renderList();
-  if (v === 'Stat') loadStat();
-  if (v === 'Rank') loadRank();
-  if (v === 'TS')   loadTS();
-  if (v === 'Pred') loadPred().then(renderEvt);
-  if (v === 'Cust') renderCust();
-  if (v === 'Log')  renderLog();
-}
-
-TABS.forEach(n => $('t' + n).onclick = () => show(n));
-
-// Changelog entries, newest first. To add a release, put a new object at the top of this list.
-// (Entry text is shown in English in every language.)
-const CHANGELOG = [
-  {
-    v: '2.0.2',
-    date: '2026-10-12',
-    notes: [
-      'Fixed the System theme: dark-mode devices now get the dark palette and light-mode devices get the light one (the check was inverted).',
-      'The Changelog tab now works.',
-      'The Team Stats, Event Predictor, Custom Predictor and Changelog tab names are now translated.',
-      'Code reorganized with spacing and comments throughout.'
-    ]
-  },
-    {
-    v: '2.0.1',
-    date: '2026-10-10',
-    notes: [
-      'Improved match predictor: use data from prior seasons to assist in predicting matches early season',
-      'Added dummy Changelog tab',
-      'Minor visual tweaks to the UI'
-    ]
-  },
-    {
-    v: '2.0.0',
-    date: '2026-10-03',
-    notes: [
-      'New Statbotics tab with EPA data for every team in the event',
-      'New Team Stats tab with OPR-style table and chart builder',
-      'New Event Predictor tab with match-by-match predictions for the event',
-      'New Custom Predictor tab to predict any 3v3 match, independent of the event',
-      'New Settings tab to choose theme and language'
-    ]
-  },
-    {
-    v: '0.0.2',
-    date: '2026-08-08',
-    notes: [
-      'Created Scout tab',
-      'Created Heatmap tab'
-    ]
-  },
-    {
-    v: '0.0.1',
-    date: '2026-08-02',
-    notes: [
-      'TitanScout was created'
-    ]
-  }
-];
-
-// Draws the changelog list.
-function renderLog() {
-  $('logList').innerHTML = CHANGELOG.map(e =>
-    '<div class="cl"><h3>v' + esc(e.v) + (e.date ? ' <span class="mut">· ' + esc(e.date) + '</span>' : '') + '</h3><ul>' +
-    e.notes.map(n => '<li>' + esc(n) + '</li>').join('') +
-    '</ul></div>'
-  ).join('');
-}
-
-
-/* =========================================================================
-   5. HEATMAP + REPLAY
-   ========================================================================= */
-
-// Fills the Team dropdown with teams that have visible matches, keeping the previous choice if still valid.
-function fillTeams() {
-  const sel = $('fTeam'), old = sel.value;
-  const teams = [...new Set(sm().map(m => m.team))].sort((a, b) => a - b);
-
-  sel.innerHTML = teams.map(t => '<option>' + t + '</option>').join('')
-               || '<option value="">' + t('noData') + '</option>';
-
-  if (teams.map(String).includes(old)) sel.value = old;
+// ===== Heatmap =====
+function fillTeams(){
+  const sel=$('fTeam'),old=sel.value;
+  const teams=[...new Set(sm().map(m=>m.team))].sort((a,b)=>a-b);
+  sel.innerHTML=teams.map(t=>'<option>'+t+'</option>').join('')||'<option value="">'+t('noData')+'</option>';
+  if(teams.map(String).includes(old))sel.value=old;
   fillRM();
 }
-
-// HSL to RGB (h in degrees, s/l in 0-1). Returns [r,g,b] in 0-255.
-const hsl = (h, s, l) => {
-  const k = n => (n + h / 30) % 12,
-        a = s * Math.min(l, 1 - l),
-        f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  return [f(0) * 255 | 0, f(8) * 255 | 0, f(4) * 255 | 0];
-};
-
-// 256-step color palette: low density = blue, high density = red.
-const PAL = [...Array(256)].map((_, k) => hsl((1 - Math.min(1, k / 255 * 1.6)) * 240, 1, .5));
-
-// Builds a heat overlay (offscreen canvas) from a list of {x,y} points:
-//   1) stamp a faint radial blob per point (alpha accumulates where points overlap)
-//   2) convert the accumulated alpha to a color from PAL
-function heatLayer(pts) {
-  const off = document.createElement('canvas');
-  off.width = W; off.height = H;
-  const o = off.getContext('2d'), r = +$('rad').value;
-
-  // Step 1: accumulate density.
-  pts.forEach(p => {
-    const x = p.x * W, y = p.y * H,
-          gr = o.createRadialGradient(x, y, 0, x, y, r);
-    gr.addColorStop(0, 'rgba(0,0,0,0.12)');
-    gr.addColorStop(1, 'rgba(0,0,0,0)');
-    o.fillStyle = gr;
-    o.fillRect(x - r, y - r, r * 2, r * 2);
-  });
-
-  // Step 2: recolor by density.
-  const img = o.getImageData(0, 0, W, H), d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const k = d[i + 3];                       // accumulated density
-    if (k < 8) { d[i + 3] = 0; continue; }    // too faint: transparent
-    const c = PAL[k];
-    d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2];
-    d[i + 3] = Math.min(210, k * 1.57 | 0);   // cap opacity so the field shows through
-  }
-  o.putImageData(img, 0, 0);
-  return off;
+const hsl=(h,s,l)=>{const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l),f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return[f(0)*255|0,f(8)*255|0,f(4)*255|0]};
+const PAL=[...Array(256)].map((_,k)=>hsl((1-Math.min(1,k/255*1.6))*240,1,.5));
+function heatLayer(pts){
+  const off=document.createElement('canvas');off.width=W;off.height=H;
+  const o=off.getContext('2d'),r=+$('rad').value;
+  pts.forEach(p=>{const x=p.x*W,y=p.y*H,gr=o.createRadialGradient(x,y,0,x,y,r);gr.addColorStop(0,'rgba(0,0,0,0.12)');gr.addColorStop(1,'rgba(0,0,0,0)');o.fillStyle=gr;o.fillRect(x-r,y-r,r*2,r*2)});
+  const img=o.getImageData(0,0,W,H),d=img.data;
+  for(let i=0;i<d.length;i+=4){const k=d[i+3];if(k<8){d[i+3]=0;continue}const c=PAL[k];d[i]=c[0];d[i+1]=c[1];d[i+2]=c[2];d[i+3]=Math.min(210,k*1.57|0)}
+  o.putImageData(img,0,0);return off;
 }
-
-// All points from a set of matches, filtered by phase ('all' | 'auto' | 'tele').
-const ptsOf = (ms, ph) =>
-  ms.flatMap(m => (ph === 'tele' ? [] : m.auto).concat(ph === 'auto' ? [] : m.tele));
-
-// Draws the heatmap for the selected team (or hands off to the replay if one is selected).
-function renderHeat() {
-  rp.cache = null;
-  rp.liveN = -1;
-
-  if ($('rMatch').value !== '') { drawReplay(); return; }
-
-  const c = $('heat'), g = c.getContext('2d');
-  drawField(c);
-
-  const ms  = sm().filter(m => m.team === +$('fTeam').value),
-        pts = ptsOf(ms, $('fPhase').value);
-
-  $('heatInfo').textContent = ms.length
-    ? (ms.length + ' ' + t('matchesN') + ' · ' + pts.length + ' ' + t('samples'))
-    : t('heatEmpty');
-
-  if (pts.length) g.drawImage(heatLayer(pts), 0, 0);
-  drawStarts(g, ms);
+const ptsOf=(ms,ph)=>ms.flatMap(m=>(ph==='tele'?[]:m.auto).concat(ph==='auto'?[]:m.tele));
+function renderHeat(){
+  rp.cache=null;rp.liveN=-1;
+  if($('rMatch').value!==''){drawReplay();return}
+  const c=$('heat'),g=c.getContext('2d');drawField(c);
+  const ms=sm().filter(m=>m.team===+$('fTeam').value),pts=ptsOf(ms,$('fPhase').value);
+  $('heatInfo').textContent=ms.length?(ms.length+' '+t('matchesN')+' · '+pts.length+' '+t('samples')):t('heatEmpty');
+  if(pts.length)g.drawImage(heatLayer(pts),0,0);
+  drawStarts(g,ms);
 }
-
-// Draws start markers for the given matches (if "Starts" is checked).
-function drawStarts(g, ms) {
-  if ($('showStart').checked)
-    ms.forEach(m => { if (m.start) marker(g, m.start.x * W, m.start.y * H, '#00b36b'); });
+function drawStarts(g,ms){if($('showStart').checked)ms.forEach(m=>{if(m.start)marker(g,m.start.x*W,m.start.y*H,'#00b36b')})}
+const rp={pts:[],dur:0,t:0,playing:false,last:0,cache:null,live:null,liveN:-1};
+// Rebuilds the replay list but keeps the selected match when it still exists.
+function fillRM(){
+  const old=$('rMatch').value,ms=sm().filter(m=>m.team===+$('fTeam').value);
+  $('rMatch').innerHTML='<option value="">'+t('off')+'</option>'+ms.map((m,i)=>'<option value="'+i+'">'+t('matchNo')+' '+m.match+'</option>').join('');
+  if(old!==''&&ms[+old])$('rMatch').value=old;
+  rp.playing=false;$('rPlay').textContent=t('play');
 }
-
-// ---- Replay state ----
-//  pts   flattened auto+teleop points with times     dur   total length (ms)
-//  t     current playhead (ms)                        playing / last  animation bookkeeping
-//  cache team-total heat layer                        live / liveN    live heat layer + point count it was built from
-const rp = { pts: [], dur: 0, t: 0, playing: false, last: 0, cache: null, live: null, liveN: -1 };
-
-// Rebuilds the replay dropdown but keeps the selected match when it still exists.
-function fillRM() {
-  const old = $('rMatch').value,
-        ms  = sm().filter(m => m.team === +$('fTeam').value);
-
-  $('rMatch').innerHTML = '<option value="">' + t('off') + '</option>' +
-    ms.map((m, i) => '<option value="' + i + '">' + t('matchNo') + ' ' + m.match + '</option>').join('');
-
-  if (old !== '' && ms[+old]) $('rMatch').value = old;
-  rp.playing = false;
-  $('rPlay').textContent = t('play');
+function loadReplay(){
+  rp.playing=false;$('rPlay').textContent=t('play');rp.t=0;rp.cache=null;rp.liveN=-1;
+  const ms=sm().filter(m=>m.team===+$('fTeam').value),m=ms[+$('rMatch').value];
+  if(!m){rp.pts=[];rp.dur=0;$('rBar').max=0;$('rBar').value=0;renderHeat();return}
+  const A=m.auto.map((p,i)=>({x:p.x,y:p.y,t:p.t??i*120,a:1}));
+  const off=A.length?A[A.length-1].t+500:0;
+  const T=m.tele.map((p,i)=>({x:p.x,y:p.y,t:(p.t??i*120)+off}));
+  rp.pts=A.concat(T);rp.dur=rp.pts.length?rp.pts[rp.pts.length-1].t:0;
+  $('rBar').max=rp.dur;$('rBar').value=0;drawReplay();
 }
-
-// Loads the selected match into the replay: auto points first, then teleop (offset after auto ends).
-function loadReplay() {
-  rp.playing = false;
-  $('rPlay').textContent = t('play');
-  rp.t = 0; rp.cache = null; rp.liveN = -1;
-
-  const ms = sm().filter(m => m.team === +$('fTeam').value),
-        m  = ms[+$('rMatch').value];
-
-  // "Off" selected: show the normal heatmap again.
-  if (!m) {
-    rp.pts = []; rp.dur = 0;
-    $('rBar').max = 0; $('rBar').value = 0;
-    renderHeat();
-    return;
-  }
-
-  // Older saves have no "t": fall back to 120 ms spacing (the sample rate).
-  const A   = m.auto.map((p, i) => ({ x: p.x, y: p.y, t: p.t ?? i * 120, a: 1 }));   // a:1 = auto point
-  const off = A.length ? A[A.length - 1].t + 500 : 0;                                // teleop starts 0.5 s after auto
-  const T   = m.tele.map((p, i) => ({ x: p.x, y: p.y, t: (p.t ?? i * 120) + off }));
-
-  rp.pts = A.concat(T);
-  rp.dur = rp.pts.length ? rp.pts[rp.pts.length - 1].t : 0;
-  $('rBar').max = rp.dur;
-  $('rBar').value = 0;
-  drawReplay();
-}
-
-// Draws one replay frame at time rp.t: path so far, optional heat, start marker, robot dot.
-function drawReplay() {
-  const c = $('heat'), g = c.getContext('2d');
-  drawField(c);
-
-  const ms = sm().filter(m => m.team === +$('fTeam').value),
-        m  = ms[+$('rMatch').value];
-  if (!m) return;
-
-  const seen = rp.pts.filter(p => p.t <= rp.t),   // points reached so far
-        mode = $('rHeat').value;
-
-  // Path: magenta for auto, white for teleop. Gaps over 400 ms (lifted finger) are not joined.
-  g.lineWidth = 5; g.lineJoin = 'round'; g.lineCap = 'round';
-  let prev = null;
-  seen.forEach(p => {
-    if (prev && p.t - prev.t < 400) {
-      g.strokeStyle = p.a ? '#ff3df0' : '#ffffff';
-      g.beginPath();
-      g.moveTo(prev.x * W, prev.y * H);
-      g.lineTo(p.x * W, p.y * H);
-      g.stroke();
-    }
-    prev = p;
-  });
-
-  // Heat overlay: whole-team total, or one that builds up as the replay plays.
-  if (mode === 'team') {
-    if (!rp.cache) rp.cache = heatLayer(ptsOf(ms, 'all'));
-    g.drawImage(rp.cache, 0, 0);
-  } else if (mode === 'live' && seen.length) {
+function drawReplay(){
+  const c=$('heat'),g=c.getContext('2d');drawField(c);
+  const ms=sm().filter(m=>m.team===+$('fTeam').value),m=ms[+$('rMatch').value];
+  if(!m)return;
+  const seen=rp.pts.filter(p=>p.t<=rp.t),mode=$('rHeat').value;
+  g.lineWidth=5;g.lineJoin='round';g.lineCap='round';
+  let prev=null;
+  seen.forEach(p=>{if(prev&&p.t-prev.t<400){g.strokeStyle=p.a?'#ff3df0':'#ffffff';g.beginPath();g.moveTo(prev.x*W,prev.y*H);g.lineTo(p.x*W,p.y*H);g.stroke()}prev=p});
+  if(mode==='team'){if(!rp.cache)rp.cache=heatLayer(ptsOf(ms,'all'));g.drawImage(rp.cache,0,0)}
+  else if(mode==='live'&&seen.length){
     // Perf fix: rebuild the live heat layer every 6 new points instead of every frame.
-    if (rp.liveN < 0 || seen.length < rp.liveN || seen.length - rp.liveN >= 6) {
-      rp.live = heatLayer(seen);
-      rp.liveN = seen.length;
-    }
-    g.drawImage(rp.live, 0, 0);
-  }
-
-  // Start marker.
-  if ($('showStart').checked && m.start) marker(g, m.start.x * W, m.start.y * H, '#00b36b');
-
-  // Robot position dot (the latest point).
-  if (prev) {
-    g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 3;
-    g.beginPath(); g.arc(prev.x * W, prev.y * H, 9, 0, 7); g.fill(); g.stroke();
-  }
-
-  $('rTime').textContent = (rp.t / 1000).toFixed(1) + ' / ' + (rp.dur / 1000).toFixed(1) + ' s';
-  $('heatInfo').textContent = t('replay') + ' · ' + t('matchNo') + ' ' + m.match;
+    if(rp.liveN<0||seen.length<rp.liveN||seen.length-rp.liveN>=6){rp.live=heatLayer(seen);rp.liveN=seen.length}
+    g.drawImage(rp.live,0,0)}
+  if($('showStart').checked&&m.start)marker(g,m.start.x*W,m.start.y*H,'#00b36b');
+  if(prev){g.fillStyle='#fff';g.strokeStyle='#000';g.lineWidth=3;g.beginPath();g.arc(prev.x*W,prev.y*H,9,0,7);g.fill();g.stroke()}
+  $('rTime').textContent=(rp.t/1000).toFixed(1)+' / '+(rp.dur/1000).toFixed(1)+' s';
+  $('heatInfo').textContent=t('replay')+' · '+t('matchNo')+' '+m.match;
 }
-
-// Animation loop: advance the playhead by real elapsed time times the speed setting.
-function tick(ts) {
-  if (!rp.playing) return;
-
-  rp.t += (ts - rp.last) * (+$('rSpd').value);
-  rp.last = ts;
-
-  // Reached the end: stop and reset the button.
-  if (rp.t >= rp.dur) { rp.t = rp.dur; rp.playing = false; $('rPlay').textContent = t('play'); }
-
-  $('rBar').value = rp.t;
-  drawReplay();
-  if (rp.playing) requestAnimationFrame(tick);
+function tick(ts){
+  if(!rp.playing)return;
+  rp.t+=(ts-rp.last)*(+$('rSpd').value);rp.last=ts;
+  if(rp.t>=rp.dur){rp.t=rp.dur;rp.playing=false;$('rPlay').textContent=t('play')}
+  $('rBar').value=rp.t;drawReplay();
+  if(rp.playing)requestAnimationFrame(tick);
 }
-
-// ---- Heatmap controls ----
-$('rMatch').onchange = loadReplay;
-
-$('rHeat').onchange = () => {
-  rp.cache = null; rp.liveN = -1;
-  if ($('rMatch').value !== '') drawReplay();
+$('rMatch').onchange=loadReplay;
+$('rHeat').onchange=()=>{rp.cache=null;rp.liveN=-1;if($('rMatch').value!=='')drawReplay()};
+$('rBar').oninput=()=>{rp.t=+$('rBar').value;drawReplay()};
+$('rPlay').onclick=()=>{
+  if($('rMatch').value===''||!rp.dur)return;
+  if(rp.playing){rp.playing=false;$('rPlay').textContent=t('play');return}
+  if(rp.t>=rp.dur)rp.t=0;
+  rp.playing=true;rp.last=performance.now();$('rPlay').textContent=t('pause');requestAnimationFrame(tick);
 };
+$('fTeam').onchange=()=>{$('rMatch').value='';fillRM();renderHeat()};
+$('fPhase').onchange=$('rad').oninput=$('showStart').onchange=renderHeat;
 
-// Dragging the slider scrubs the replay.
-$('rBar').oninput = () => { rp.t = +$('rBar').value; drawReplay(); };
-
-// Play / pause (restarts from 0 if the replay had finished).
-$('rPlay').onclick = () => {
-  if ($('rMatch').value === '' || !rp.dur) return;
-
-  if (rp.playing) { rp.playing = false; $('rPlay').textContent = t('play'); return; }
-
-  if (rp.t >= rp.dur) rp.t = 0;
-  rp.playing = true;
-  rp.last = performance.now();
-  $('rPlay').textContent = t('pause');
-  requestAnimationFrame(tick);
-};
-
-// Changing team resets the replay selection.
-$('fTeam').onchange = () => { $('rMatch').value = ''; fillRM(); renderHeat(); };
-
-// Phase / radius / starts checkbox just redraw.
-$('fPhase').onchange = $('rad').oninput = $('showStart').onchange = renderHeat;
-
-
-/* =========================================================================
-   6. SAVED-MATCH LIST + JSON IMPORT / EXPORT
-   ========================================================================= */
-
-// Draws the saved-match list (visible season/event only) with a Delete button per row.
+// ===== Import / export =====
 // All user-controlled text is escaped before it touches innerHTML.
-function renderList() {
-  $('listTitle').textContent = t('saved') + ' · ' + seasonYear() + (ev ? ' · ' + ev.key : '');
-
-  $('list').innerHTML = matches.some(inSeason)
-    ? matches.map((m, i) => !inSeason(m) ? '' :
-        '<div class="row"><span>' +
-          t('team') + ' ' + esc(m.team) + ' · ' +
-          t('matchNo') + ' ' + esc(m.match) + ' · ' +
-          t(m.alliance === 'blue' ? 'blue' : 'red') +
-          (m.start ? ' · ' + t('start') : '') + ' · ' +
-          (m.auto.length + m.tele.length) + ' ' + t('pts') +
-        '</span><button class="x" data-i="' + i + '">' + t('del') + '</button></div>'
-      ).join('')
-    : '<span class="mut">' + t('nothing') + '</span>';
-
-  // data-i is the index into the FULL matches array, so deleting is exact even when the list is filtered.
-  document.querySelectorAll('.x').forEach(b => b.onclick = () => {
-    matches.splice(+b.dataset.i, 1);
-    persist();
-    renderList();
-  });
+function renderList(){
+  $('listTitle').textContent=t('saved')+' · '+seasonYear()+(ev?' · '+ev.key:'');
+  $('list').innerHTML=matches.some(inSeason)?matches.map((m,i)=>!inSeason(m)?'':'<div class="row"><span>'+t('team')+' '+esc(m.team)+' · '+t('matchNo')+' '+esc(m.match)+' · '+t(m.alliance==='blue'?'blue':'red')+(m.start?' · '+t('start'):'')+' · '+(m.auto.length+m.tele.length)+' '+t('pts')+'</span><button class="x" data-i="'+i+'">'+t('del')+'</button></div>').join(''):'<span class="mut">'+t('nothing')+'</span>';
+  document.querySelectorAll('.x').forEach(b=>b.onclick=()=>{matches.splice(+b.dataset.i,1);persist();renderList()});
 }
-
-// Export: dump every saved match as JSON into the text box.
-$('exp').onclick = () => { $('io').value = JSON.stringify(matches); $('io').select(); };
-
-// ---- Import validation ----
-const okPt  = p => p && isFinite(p.x) && isFinite(p.y);   // a point has numeric x and y
-const valid = m =>
-  m && isFinite(m.team) && isFinite(m.match) &&
-  Array.isArray(m.auto) && Array.isArray(m.tele) &&
-  m.auto.every(okPt) && m.tele.every(okPt) &&
-  (!m.start || okPt(m.start));
-
+$('exp').onclick=()=>{$('io').value=JSON.stringify(matches);$('io').select()};
+const okPt=p=>p&&isFinite(p.x)&&isFinite(p.y);
+const valid=m=>m&&isFinite(m.team)&&isFinite(m.match)&&Array.isArray(m.auto)&&Array.isArray(m.tele)&&m.auto.every(okPt)&&m.tele.every(okPt)&&(!m.start||okPt(m.start));
 // Import: reject malformed entries, only allow known field images, skip duplicates already saved.
-$('imp').onclick = () => {
-  let a;
-  try { a = JSON.parse($('io').value); }
-  catch (e) { alert(t('badJson')); return; }
-
-  if (!Array.isArray(a)) { alert(t('notList')); return; }
-
-  const seen = new Set(matches.map(mkey));
-  let added = 0, bad = 0;
-
-  a.forEach(m => {
-    if (!valid(m)) { bad++; return; }
-
-    // Rebuild a clean match object (never trust extra fields from the pasted JSON).
-    const n = {
-      team:     +m.team,
-      match:    +m.match,
-      alliance: m.alliance === 'blue' ? 'blue' : 'red',
-      field:    FIELDS.some(f => f[0] === m.field) ? m.field : FIELDS[0][0],
-      event:    typeof m.event === 'string' ? m.event : null,
-      start:    m.start || null,
-      auto:     m.auto,
-      tele:     m.tele
-    };
-
-    if (seen.has(mkey(n))) return;   // duplicate
-    seen.add(mkey(n));
-    matches.push(n);
-    added++;
+$('imp').onclick=()=>{
+  let a;try{a=JSON.parse($('io').value)}catch(e){alert(t('badJson'));return}
+  if(!Array.isArray(a)){alert(t('notList'));return}
+  const seen=new Set(matches.map(mkey));let added=0,bad=0;
+  a.forEach(m=>{
+    if(!valid(m)){bad++;return}
+    const n={team:+m.team,match:+m.match,alliance:m.alliance==='blue'?'blue':'red',field:FIELDS.some(f=>f[0]===m.field)?m.field:FIELDS[0][0],event:typeof m.event==='string'?m.event:null,start:m.start||null,auto:m.auto,tele:m.tele};
+    if(seen.has(mkey(n)))return;seen.add(mkey(n));matches.push(n);added++;
   });
-
-  if (persist()) {
-    renderList();
-    $('io').value = '';
-    alert(t('imported') + ': ' + added + (bad ? ' · ✗ ' + bad : ''));
-  }
+  if(persist()){renderList();$('io').value='';alert(t('imported')+': '+added+(bad?' · ✗ '+bad:''))}
 };
 
-
-/* =========================================================================
-   7. THE BLUE ALLIANCE (TBA): GLOBAL EVENT BAR + RANKINGS
-   ========================================================================= */
-
-const TBA     = 'https://www.thebluealliance.com/api/v3';
-const evCache = {};   // season year -> list of that year's events
-
-// Restore the saved TBA key into the input.
-try { $('tbaKey').value = localStorage.getItem('frcTbaKey') || ''; } catch (e) {}
-
-$('keySave').onclick = () => {
-  try { localStorage.setItem('frcTbaKey', $('tbaKey').value.trim()); } catch (e) {}
-  $('evInfo').textContent = t('keySaved');
-};
-
-// Calls the TBA API with the saved key and turns errors into readable messages.
-async function tba(path) {
-  const k = $('tbaKey').value.trim();
-  if (!k) throw new Error(t('needKey'));
-
-  let r;
-  try { r = await fetch(TBA + path, { headers: { 'X-TBA-Auth-Key': k } }); }
-  catch (e) { throw new Error(t('noNet')); }
-
-  if (r.status === 401) throw new Error(t('rejected'));
-  if (r.status === 404) throw new Error(t('notFound'));
-  if (!r.ok) throw new Error('TBA error ' + r.status);
+// ===== The Blue Alliance: global event bar =====
+const TBA='https://www.thebluealliance.com/api/v3',evCache={};
+try{$('tbaKey').value=localStorage.getItem('frcTbaKey')||''}catch(e){}
+$('keySave').onclick=()=>{try{localStorage.setItem('frcTbaKey',$('tbaKey').value.trim())}catch(e){}$('evInfo').textContent=t('keySaved')};
+async function tba(path){
+  const k=$('tbaKey').value.trim();
+  if(!k)throw new Error(t('needKey'));
+  let r;try{r=await fetch(TBA+path,{headers:{'X-TBA-Auth-Key':k}})}catch(e){throw new Error(t('noNet'))}
+  if(r.status===401)throw new Error(t('rejected'));
+  if(r.status===404)throw new Error(t('notFound'));
+  if(!r.ok)throw new Error('TBA error '+r.status);
   return r.json();
 }
-
-// Updates the status line under the event search.
-function evLabel() {
-  $('evInfo').textContent = ev
-    ? t('event') + ': ' + ev.name + ' (' + ev.key + '). ' + t('eventOn')
-    : t('noEvent');
+function evLabel(){$('evInfo').textContent=ev?t('event')+': '+ev.name+' ('+ev.key+'). '+t('eventOn'):t('noEvent')}
+// Selecting an event also switches the field to that event's season (when we have its image) and refreshes the current tab.
+function setEvent(e){
+  ev=e;try{localStorage.setItem('frcEv',JSON.stringify(e))}catch(x){}
+  $('evPick').innerHTML='';evLabel();
+  if(e){const f=FIELDS.find(f=>f[1]===String(e.year));if(f)setField(f[0])}
+  rp.pts=[];$('rMatch').value='';show(tab);
+}
+$('evClear').onclick=()=>setEvent(null);
+// Search: exact code first, then region guess across name, city, state/province, country and short code.
+async function evSearch(){
+  const q=$('evQ').value.trim().toLowerCase();
+  $('evPick').innerHTML='';if(!q)return;
+  try{
+    if(/^\d{4}[a-z0-9]+$/.test(q)){const d=await tba('/event/'+q+'/simple');setEvent({key:d.key,name:d.name,year:d.year});return}
+    const y=seasonYear();
+    const list=evCache[y]||(evCache[y]=await tba('/events/'+y+'/simple'));
+    const code=list.find(e=>e.key===y+q);
+    if(code){setEvent({key:code.key,name:code.name,year:code.year});return}
+    const hits=list.filter(e=>[e.name,e.city,e.state_prov,e.country].some(s=>(s||'').toLowerCase().includes(q))).sort((a,b)=>(a.start_date||'').localeCompare(b.start_date||'')).slice(0,12);
+    if(!hits.length){$('evInfo').textContent=t('noMatch')+' "'+q+'" ('+y+')';return}
+    if(hits.length===1){setEvent({key:hits[0].key,name:hits[0].name,year:hits[0].year});return}
+    $('evInfo').textContent=t('pickOne');
+    $('evPick').innerHTML=hits.map((e,i)=>'<div class="row"><button data-i="'+i+'">'+esc(e.name)+' · '+esc([e.city,e.state_prov].filter(Boolean).join(', '))+' · '+esc(e.start_date||'')+'</button></div>').join('');
+    $('evPick').querySelectorAll('button').forEach(b=>b.onclick=()=>{const e=hits[+b.dataset.i];setEvent({key:e.key,name:e.name,year:e.year})});
+  }catch(e){$('evInfo').textContent=e.message}
+}
+$('evGo').onclick=evSearch;$('evQ').onkeydown=e=>{if(e.key==='Enter')evSearch()};
+let RKD=null;
+async function loadRank(){
+  if(!ev){$('rkInfo').textContent=t('pickEvent');$('rkTable').innerHTML='';return}
+  try{
+    RKD=await tba('/event/'+ev.key+'/rankings');
+    await ensureInfo().catch(()=>{});renderRank();
+  }catch(e){$('rkInfo').textContent=e.message}
+}
+function renderRank(){
+  const d=RKD,rk=d&&d.rankings;
+  if(!rk||!rk.length){$('rkInfo').textContent=t('noRank');$('rkTable').innerHTML='';return}
+  const info=(d.sort_order_info||[]).map(x=>x.name);
+  $('rkInfo').textContent=t('rankFor')+' '+ev.name+' ('+rk.length+')';
+  let h='<table><tr><th>'+t('rankH')+'</th><th>'+t('team')+'</th><th>W-L-T</th><th>'+t('played')+'</th>'+info.map(n=>'<th>'+esc(n)+'</th>').join('')+'</tr>';
+  rk.forEach(r=>{const c=r.record||{};h+='<tr><td>'+r.rank+'</td><td>'+teamCell(r.team_key.slice(3))+'</td><td>'+(c.wins??'')+'-'+(c.losses??'')+'-'+(c.ties??'')+'</td><td>'+(r.matches_played??'')+'</td>'+(r.sort_orders||[]).map(v=>'<td>'+(typeof v==='number'?+v.toFixed(2):esc(v))+'</td>').join('')+'</tr>'});
+  $('rkTable').innerHTML=h+'</table>';
 }
 
-// Selects (or clears) the event. Also switches the field to that event's season
-// (when we have its image) and refreshes the current tab.
-function setEvent(e) {
-  ev = e;
-  try { localStorage.setItem('frcEv', JSON.stringify(e)); } catch (x) {}
-
-  $('evPick').innerHTML = '';
-  evLabel();
-
-  if (e) {
-    const f = FIELDS.find(f => f[1] === String(e.year));
-    if (f) setField(f[0]);
-  }
-
-  rp.pts = [];
-  $('rMatch').value = '';
-  show(tab);
+// ===== Team names, logos and robot types =====
+const TI={},TAGS=['Turret','Dumper','Telescope','Climber'];let AV={},ETEAMS=[],TIkey=null,ROBBASE={},ROBLOC={};
+try{AV=JSON.parse(sessionStorage.getItem('frcAv')||'{}')}catch(e){}// logos are cached for this browser session only so they never fill the match-data storage
+try{ROBLOC=JSON.parse(localStorage.getItem('frcRobots')||'{}')}catch(e){}
+const cleanRob=j=>{const o={};for(const t in j||{}){const v=j[t]||{};if(/^\d+$/.test(t))o[t]={tags:(Array.isArray(v.tags)?v.tags:[]).filter(g=>TAGS.includes(g)),note:String(v.note||'').slice(0,200)}}return o};
+fetch('data/robot_types.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{if(j)ROBBASE=cleanRob(j)}).catch(()=>{});
+const getRob=t=>ROBLOC[t]||ROBBASE[t]||{tags:[],note:''};
+const badge=t=>{const g=getRob(t).tags;return g.length?'<span>'+g.map(x=>'<i class="bdg">'+esc(x)+'</i>').join('')+'</span>':''};
+const teamCell=t=>{const i=TI[t]||{},img=AV[t];return '<div class="tm">'+(img?'<img src="'+img+'" alt="">':'<span class="ph"></span>')+'<span><b>'+esc(t)+'</b>'+(i.name?'<small>'+esc(i.name)+'</small>':'')+badge(t)+'</span></div>'};
+// Team names come from TBA's event team list; logos are TBA avatars (this season, else last season) loaded in the background.
+async function ensureInfo(){
+  if(!ev||TIkey===ev.key)return;
+  const list=await tba('/event/'+ev.key+'/teams/simple');
+  list.forEach(x=>{TI[x.team_number]={name:x.nickname}});ETEAMS=list.map(x=>x.team_number);TIkey=ev.key;
+  pool(list,6,async x=>{
+    const t=x.team_number;if(AV[t]!==undefined)return;let img='';
+    for(const y of [+ev.year,+ev.year-1]){try{const md=await tba('/team/frc'+t+'/media/'+y),a=md.find(z=>z.type==='avatar'&&z.details&&z.details.base64Image);if(a){img='data:image/png;base64,'+a.details.base64Image;break}}catch(e){}}
+    AV[t]=img;
+  }).then(()=>{try{sessionStorage.setItem('frcAv',JSON.stringify(AV))}catch(e){}if(tab==='TS')renderTS();if(tab==='Rank')renderRank();if(tab==='Rob')renderRob()});
 }
-
-$('evClear').onclick = () => setEvent(null);
-
-// Search order: 1) exact event key (e.g. 2026casd)  2) short code for the chosen season (e.g. casd)
-//               3) text match on name, city, state/province or country.
-async function evSearch() {
-  const q = $('evQ').value.trim().toLowerCase();
-  $('evPick').innerHTML = '';
-  if (!q) return;
-
-  try {
-    // 1) Full key such as "2026casd".
-    if (/^\d{4}[a-z0-9]+$/.test(q)) {
-      const d = await tba('/event/' + q + '/simple');
-      setEvent({ key: d.key, name: d.name, year: d.year });
-      return;
-    }
-
-    // Load (and cache) the season's event list.
-    const y = seasonYear();
-    const list = evCache[y] || (evCache[y] = await tba('/events/' + y + '/simple'));
-
-    // 2) Short code for the selected season.
-    const code = list.find(e => e.key === y + q);
-    if (code) { setEvent({ key: code.key, name: code.name, year: code.year }); return; }
-
-    // 3) Text search, soonest events first, max 12.
-    const hits = list
-      .filter(e => [e.name, e.city, e.state_prov, e.country].some(s => (s || '').toLowerCase().includes(q)))
-      .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
-      .slice(0, 12);
-
-    if (!hits.length) { $('evInfo').textContent = t('noMatch') + ' "' + q + '" (' + y + ')'; return; }
-    if (hits.length === 1) { setEvent({ key: hits[0].key, name: hits[0].name, year: hits[0].year }); return; }
-
-    // Several hits: show one button per event.
-    $('evInfo').textContent = t('pickOne');
-    $('evPick').innerHTML = hits.map((e, i) =>
-      '<div class="row"><button data-i="' + i + '">' + esc(e.name) + ' · ' +
-      esc([e.city, e.state_prov].filter(Boolean).join(', ')) + ' · ' + esc(e.start_date || '') +
-      '</button></div>'
-    ).join('');
-
-    $('evPick').querySelectorAll('button').forEach(b => b.onclick = () => {
-      const e = hits[+b.dataset.i];
-      setEvent({ key: e.key, name: e.name, year: e.year });
-    });
-  } catch (e) {
-    $('evInfo').textContent = e.message;
-  }
+// ===== Team Stats =====
+// TBA only publishes ALLIANCE totals per match, so per-team numbers are least-squares estimates (the same math as OPR) run on each field.
+const STATS=['Hub Auto Fuel Count','Hub Teleop Fuel Count','Hub Endgame Fuel Count','Hub Total Fuel Count','Hub Transition Fuel Count','Hub Shift 1 Fuel Count','Hub Shift 2 Fuel Count','Hub Shift 3 Fuel Count','Hub Shift 4 Fuel Count','Hub First Active Shift Count','Hub Second Active Shift Count','Hub Uncounted','Auto Tower Points','End Game Tower Points','Energized Achieved','Foul Points','G206 Penalty','Major Foul Count','Minor Foul Count','RP','Supercharged Achieved','Total Auto Points','Total Points','Total Teleop Points','Total Tower Points','Traversal Achieved'];
+const DEFCOLS=['OPR','Hub Auto Fuel Count','Hub Teleop Fuel Count','Hub Total Fuel Count','Total Auto Points','Total Teleop Points','Total Tower Points','Total Points'];
+// <core>
+const nrm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,'');
+function flat(o,p,out){if(!o||typeof o!=='object'||Array.isArray(o))return;for(const k in o){const v=o[k],q=p?p+'.'+k:k;if(typeof v==='number')out[q]=v;else if(typeof v==='boolean')out[q]=+v;else flat(v,q,out)}}
+// Finds the TBA field whose name contains the label's words in order; the shortest match wins (most specific).
+function pickPath(tk,P){
+  if(!tk.length)return null;
+  const ok=P.filter(p=>{const q=nrm(p);if(tk.length===1)return nrm(p.split('.').pop())===tk[0];let i=0;for(const w of tk){i=q.indexOf(w,i);if(i<0)return false;i+=w.length}return true});
+  return ok.sort((a,b)=>nrm(a).length-nrm(b).length)[0]||null;
 }
-
-$('evGo').onclick = evSearch;
-$('evQ').onkeydown = e => { if (e.key === 'Enter') evSearch(); };
-
-// EVENT RANKINGS tab: official TBA qualification rankings for the selected event.
-async function loadRank() {
-  if (!ev) { $('rkInfo').textContent = t('pickEvent'); $('rkTable').innerHTML = ''; return; }
-
-  try {
-    const d = await tba('/event/' + ev.key + '/rankings'),
-          rk = d && d.rankings;
-
-    if (!rk || !rk.length) { $('rkInfo').textContent = t('noRank'); $('rkTable').innerHTML = ''; return; }
-
-    // Column names for the extra sort values (ranking points, tiebreakers, ...).
-    const info = (d.sort_order_info || []).map(x => x.name);
-    $('rkInfo').textContent = t('rankFor') + ' ' + ev.name + ' (' + rk.length + ')';
-
-    let h = '<table><tr><th>' + t('rankH') + '</th><th>' + t('team') + '</th><th>W-L-T</th><th>' + t('played') + '</th>' +
-            info.map(n => '<th>' + esc(n) + '</th>').join('') + '</tr>';
-
-    rk.forEach(r => {
-      const c = r.record || {};
-      h += '<tr><td>' + r.rank + '</td><td>' + esc(r.team_key.slice(3)) + '</td><td>' +
-           (c.wins ?? '') + '-' + (c.losses ?? '') + '-' + (c.ties ?? '') + '</td><td>' + (r.matches_played ?? '') + '</td>' +
-           (r.sort_orders || []).map(v => '<td>' + (typeof v === 'number' ? +v.toFixed(2) : esc(v)) + '</td>').join('') +
-           '</tr>';
-    });
-
-    $('rkTable').innerHTML = h + '</table>';
-  } catch (e) {
-    $('rkInfo').textContent = e.message;
-  }
+function solve(M,R){
+  const n=M.length,c=R[0].length,A=M.map((r,i)=>r.concat(R[i]));
+  for(let i=0;i<n;i++){let p=i;for(let r=i+1;r<n;r++)if(Math.abs(A[r][i])>Math.abs(A[p][i]))p=r;[A[i],A[p]]=[A[p],A[i]];const d=A[i][i];for(let j=i;j<n+c;j++)A[i][j]/=d;for(let r=0;r<n;r++)if(r!==i){const f=A[r][i];if(f)for(let j=i;j<n+c;j++)A[r][j]-=f*A[i][j]}}
+  return A.map(r=>r.slice(n));
 }
-
-
-/* =========================================================================
-   8. STATBOTICS (EPA)
-   Public API, no key needed. Reads Statbotics v3 team_events for the selected
-   event and ranks teams by total EPA.
-   ========================================================================= */
-
-// Safe nested lookup: get(obj, 'a.b.c') returns undefined if any step is missing.
-const get = (o, p) => p.split('.').reduce((a, k) => a == null ? a : a[k], o);
-
-// One decimal place, or an en dash when the value is missing.
-const num = v => typeof v === 'number' ? v.toFixed(1) : '–';
-
-const SB = 'https://api.statbotics.io/v3/';
-
-// Fetches a Statbotics path and throws a readable error on failure.
-async function sbj(p) {
-  const r = await fetch(SB + p);
-  if (!r.ok) throw new Error('Statbotics ' + r.status + ' on /' + p.split('?')[0]);
-  return r.json();
-}
-
-// Maps a Statbotics team_event object to the columns we show.
-const sbRow = e => ({
-  team: e.team,
-  epa:  get(e, 'epa.total_points.mean') ?? get(e, 'epa.unitless'),
-  auto: get(e, 'epa.breakdown.auto_points'),
-  tele: get(e, 'epa.breakdown.teleop_points'),
-  end:  get(e, 'epa.breakdown.endgame_points')
-});
-
-// Data sources, tried in order:
-//   1) JSON saved in this repo by scripts/fetch_statbotics.py (GitHub Action)
-//   2) live Statbotics bulk call
-//   3) per-team fallback: TBA team list + one Statbotics call per team
-//      (Statbotics returned HTTP 500 on the bulk call for some events)
-async function loadStat() {
-  if (!ev) { $('stInfo').textContent = t('pickEvent'); $('stTable').innerHTML = ''; return; }
-
-  $('stInfo').textContent = t('loading');
-  let rows = null, why = '', upd = '';
-
-  // 1) Repo snapshot.
-  try {
-    const r = await fetch('data/statbotics/' + encodeURIComponent(ev.key) + '.json', { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      if (Array.isArray(j.rows) && j.rows.length) { rows = j.rows.map(sbRow); upd = j.updated; }
-    }
-  } catch (e) {}
-
-  // 2) Live bulk API.
-  if (!rows) try {
-    const d = await sbj('team_events?event=' + encodeURIComponent(ev.key));
-    if (Array.isArray(d)) rows = d.map(sbRow);
-  } catch (e) { why = e.message; }
-
-  // 3) Per-team fallback.
-  if (!rows || !rows.length) {
-    try {
-      const keys = await tba('/event/' + ev.key + '/teams/keys');
-      rows = (await Promise.all(
-        keys.map(k => sbj('team_event/' + k.slice(3) + '/' + ev.key).then(sbRow).catch(() => null))
-      )).filter(Boolean);
-    } catch (e) { why += (why ? ' · ' : '') + e.message; }
-  }
-
-  // Nothing worked.
-  if (!rows || !rows.length) {
-    $('stInfo').textContent = t('noEpa') + (why ? ' (' + why + ')' : '');
-    $('stTable').innerHTML = '';
-    return;
-  }
-
-  // Highest EPA first (missing values sink to the bottom).
-  rows.sort((a, b) => (b.epa ?? -1) - (a.epa ?? -1));
-
-  $('stInfo').textContent = t('epaFor') + ' ' + ev.name + ' · ' + rows.length + ' · Statbotics' + (upd ? ' · ' + upd : '');
-  $('stTable').innerHTML =
-    '<table><tr><th>#</th><th>' + t('team') + '</th><th>EPA</th><th>' + t('auto') + '</th><th>' + t('tele') + '</th><th>' + t('endgame') + '</th></tr>' +
-    rows.map((x, n) =>
-      '<tr><td>' + (n + 1) + '</td><td>' + esc(x.team) + '</td><td>' + num(x.epa) + '</td><td>' + num(x.auto) +
-      '</td><td>' + num(x.tele) + '</td><td>' + num(x.end) + '</td></tr>'
-    ).join('') + '</table>';
-}
-
-
-/* =========================================================================
-   9. TEAM STATS
-   TBA only publishes ALLIANCE totals per match, so per-team numbers are
-   least-squares estimates (the same math as OPR) run on each field.
-   ========================================================================= */
-
-// Stat labels we try to find in TBA's score breakdown (2026 game: fuel, hub, tower).
-const STATS = [
-  'Hub Auto Fuel Count', 'Hub Teleop Fuel Count', 'Hub Endgame Fuel Count', 'Hub Total Fuel Count',
-  'Hub Transition Fuel Count', 'Hub Shift 1 Fuel Count', 'Hub Shift 2 Fuel Count', 'Hub Shift 3 Fuel Count',
-  'Hub Shift 4 Fuel Count', 'Hub First Active Shift Count', 'Hub Second Active Shift Count', 'Hub Uncounted',
-  'Auto Tower Points', 'End Game Tower Points', 'Energized Achieved', 'Foul Points', 'G206 Penalty',
-  'Major Foul Count', 'Minor Foul Count', 'RP', 'Supercharged Achieved', 'Total Auto Points',
-  'Total Points', 'Total Teleop Points', 'Total Tower Points', 'Traversal Achieved'
-];
-
-// Columns shown by default.
-const DEFCOLS = [
-  'OPR', 'Hub Auto Fuel Count', 'Hub Teleop Fuel Count', 'Hub Total Fuel Count',
-  'Total Auto Points', 'Total Teleop Points', 'Total Tower Points', 'Total Points'
-];
-
-// <core>  (math shared with the Match Predictor; marked so it can be tested/extracted)
-
-// Normalizes a name: lowercase, letters and digits only.
-const nrm = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-// Flattens a nested object into {'a.b.c': number}. Booleans become 0/1; strings and arrays are skipped.
-function flat(o, p, out) {
-  if (!o || typeof o !== 'object' || Array.isArray(o)) return;
-  for (const k in o) {
-    const v = o[k], q = p ? p + '.' + k : k;
-    if (typeof v === 'number') out[q] = v;
-    else if (typeof v === 'boolean') out[q] = +v;
-    else flat(v, q, out);
-  }
-}
-
-// Finds the TBA field path whose name contains the label's words in order.
-// The shortest match wins (the most specific one).
-//   tk = lowercase words from the label, P = list of available field paths
-function pickPath(tk, P) {
-  if (!tk.length) return null;
-
-  const ok = P.filter(p => {
-    const q = nrm(p);
-    // One word: must equal the field's last path segment exactly.
-    if (tk.length === 1) return nrm(p.split('.').pop()) === tk[0];
-    // Several words: they must appear in order somewhere in the path.
-    let i = 0;
-    for (const w of tk) { i = q.indexOf(w, i); if (i < 0) return false; i += w.length; }
-    return true;
-  });
-
-  return ok.sort((a, b) => nrm(a).length - nrm(b).length)[0] || null;
-}
-
-// Gauss-Jordan elimination with partial pivoting.
-// Solves M * X = R where M is n x n and R is n x c (c right-hand sides). Returns X (n x c).
-function solve(M, R) {
-  const n = M.length, c = R[0].length, A = M.map((r, i) => r.concat(R[i])); // augmented matrix
-
-  for (let i = 0; i < n; i++) {
-    // Pivot: swap in the row with the largest value in column i.
-    let p = i;
-    for (let r = i + 1; r < n; r++) if (Math.abs(A[r][i]) > Math.abs(A[p][i])) p = r;
-    [A[i], A[p]] = [A[p], A[i]];
-
-    // Normalize the pivot row.
-    const d = A[i][i];
-    for (let j = i; j < n + c; j++) A[i][j] /= d;
-
-    // Eliminate column i from every other row.
-    for (let r = 0; r < n; r++) if (r !== i) {
-      const f = A[r][i];
-      if (f) for (let j = i; j < n + c; j++) A[r][j] -= f * A[i][j];
-    }
-  }
-  return A.map(r => r.slice(n));
-}
-
-// Builds the Team Stats data from an event's matches (ms) and TBA's OPRs (op).
-// Result: { teams, cols, v (value per team per column), found, played, matches }.
-function buildTS(ms, op) {
-  const al = [], paths = new Set();   // al = one entry per alliance per qualification match
-
-  // Collect each alliance's flattened score breakdown and the set of all field paths seen.
-  ms.filter(m => m.comp_level === 'qm' && m.score_breakdown).forEach(m =>
-    ['red', 'blue'].forEach(c => {
-      const f = {};
-      flat(m.score_breakdown[c], '', f);
-      Object.keys(f).forEach(k => paths.add(k));
-      al.push({ teams: m.alliances[c].team_keys.map(k => k.slice(3)), f });
-    })
-  );
-
-  const P = [...paths], found = {}, cols = [{ id: 'OPR', label: 'OPR' }], pc = [];
-
-  // Match each wanted stat label to a real TBA field (dropping filler words if the first try fails).
-  STATS.forEach(l => {
-    const tk = l.toLowerCase().split(' ').filter(w => w !== 'fuel');
-    const p  = pickPath(tk, P) || pickPath(tk.filter(w => !['hub', 'count', 'shift'].includes(w)), P);
-    found[l] = p;
-    if (p) { cols.push({ id: l, label: l, path: p }); pc.push(p); }
-  });
-
-  // Any TBA field we did not claim becomes an extra column (id prefixed "x:").
-  const used = new Set(pc);
-  P.filter(p => !used.has(p)).sort().forEach(p => {
-    cols.push({ id: 'x:' + p, label: p, path: p, extra: 1 });
-    pc.push(p);
-  });
-
-  // Normal equations: (A^T A) x = A^T y, where A marks which teams were on each alliance.
-  const teams = [...new Set(al.flatMap(a => a.teams))].sort((a, b) => a - b),
-        ix = {};
-  teams.forEach((t, i) => ix[t] = i);
-
-  const n = teams.length,
-        M = teams.map(() => Array(n).fill(0)),           // A^T A (team vs team co-appearance counts)
-        R = teams.map(() => Array(pc.length).fill(0)),   // A^T y (summed alliance values), one column per stat
-        played = {};
-
-  al.forEach(a => a.teams.forEach(t => {
-    const i = ix[t];
-    played[t] = (played[t] || 0) + 1;
-    a.teams.forEach(u => M[i][ix[u]]++);
-    pc.forEach((p, c) => R[i][c] += a.f[p] || 0);
-  }));
-
-  // Tiny ridge term keeps the matrix invertible.
-  for (let i = 0; i < n; i++) M[i][i] += 1e-3;
-
-  const X = n ? solve(M, R) : [], v = {}, tp = found['Total Points'];
-
-  teams.forEach((t, i) => {
-    v[t] = {};
-    // Prefer TBA's own OPR; otherwise use our estimate of Total Points.
-    const o = op && op.oprs && op.oprs['frc' + t];
-    v[t].OPR = o != null ? o : (tp ? X[i][pc.indexOf(tp)] : null);
-    cols.forEach(c => { if (c.path) v[t][c.id] = X[i][pc.indexOf(c.path)]; });
-  });
-
-  return { teams, cols, v, found, played, matches: al.length / 2 };
+function buildTS(ms,op){
+  const al=[],paths=new Set();
+  ms.filter(m=>m.comp_level==='qm'&&m.score_breakdown).forEach(m=>['red','blue'].forEach(c=>{const f={};flat(m.score_breakdown[c],'',f);Object.keys(f).forEach(k=>paths.add(k));al.push({teams:m.alliances[c].team_keys.map(k=>k.slice(3)),f})}));
+  const P=[...paths],found={},cols=[{id:'OPR',label:'OPR'}],pc=[];
+  STATS.forEach(l=>{const tk=l.toLowerCase().split(' ').filter(w=>w!=='fuel');const p=pickPath(tk,P)||pickPath(tk.filter(w=>!['hub','count','shift'].includes(w)),P);found[l]=p;if(p){cols.push({id:l,label:l,path:p});pc.push(p)}});
+  const used=new Set(pc);P.filter(p=>!used.has(p)).sort().forEach(p=>{cols.push({id:'x:'+p,label:p,path:p,extra:1});pc.push(p)});
+  const teams=[...new Set(al.flatMap(a=>a.teams))].sort((a,b)=>a-b),ix={};teams.forEach((t,i)=>ix[t]=i);
+  const n=teams.length,M=teams.map(()=>Array(n).fill(0)),R=teams.map(()=>Array(pc.length).fill(0)),played={};
+  al.forEach(a=>a.teams.forEach(t=>{const i=ix[t];played[t]=(played[t]||0)+1;a.teams.forEach(u=>M[i][ix[u]]++);pc.forEach((p,c)=>R[i][c]+=a.f[p]||0)}));
+  for(let i=0;i<n;i++)M[i][i]+=1e-3;
+  const X=n?solve(M,R):[],v={},tp=found['Total Points'];
+  teams.forEach((t,i)=>{v[t]={};const o=op&&op.oprs&&op.oprs['frc'+t];v[t].OPR=o!=null?o:(tp?X[i][pc.indexOf(tp)]:null);cols.forEach(c=>{if(c.path)v[t][c.id]=X[i][pc.indexOf(c.path)]})});
+  return{teams,cols,v,found,played,matches:al.length/2};
 }
 // </core>
-
-// ---- Team Stats UI state ----
-let TS = null,                          // built data for the selected event
-    tsSort = { id: 'OPR', dir: -1 },    // sort column and direction (-1 = high to low)
-    tsVis = null;                       // visible column ids (null = defaults)
-
-try { tsVis = JSON.parse(localStorage.getItem('frcTsCols') || 'null'); } catch (e) {}
-
-// Number format: 2 decimals under 10, 1 decimal otherwise, en dash if missing.
-const fmt = v => v == null ? '–' : (Math.abs(v) < 10 ? v.toFixed(2) : v.toFixed(1));
-
-// Loads matches + OPRs for the event, builds the stats, fills the chart dropdowns, then renders.
-async function loadTS(force) {
-  if (!ev) { $('tsInfo').textContent = t('pickEvent'); $('tsTable').innerHTML = ''; return; }
-  if (!force && TS && TS.key === ev.key) { renderTS(); return; }   // already loaded
-
-  $('tsInfo').textContent = t('loading');
-  try {
-    const [ms, op] = await Promise.all([
-      getMatches(force),
-      tba('/event/' + ev.key + '/oprs').catch(() => null)   // OPRs are optional
-    ]);
-
-    TS = buildTS(ms, op);
-    TS.key = ev.key;
-
-    // Chart dropdowns list every column.
-    const opts = TS.cols.map(c => '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>').join('');
-    $('cX').innerHTML = opts;
-    $('cY').innerHTML = opts;
-    $('cS').innerHTML = '<option value="">–</option>' + opts;
-    $('cX').value = 'OPR';
-    $('cY').value = TS.cols[3] ? TS.cols[3].id : 'OPR';
-
+let TS=null,tsSort={id:'OPR',dir:-1},tsVis=null;
+try{tsVis=JSON.parse(localStorage.getItem('frcTsCols')||'null')}catch(e){}
+const fmt=v=>v==null?'–':(Math.abs(v)<10?v.toFixed(2):v.toFixed(1));
+async function loadTS(force){
+  if(!ev){$('tsInfo').textContent=t('pickEvent');$('tsTable').innerHTML='';return}
+  if(!force&&TS&&TS.key===ev.key){renderTS();return}
+  $('tsInfo').textContent=t('loading');
+  try{
+    const [ms,op]=await Promise.all([getMatches(force),tba('/event/'+ev.key+'/oprs').catch(()=>null)]);
+    TS=buildTS(ms,op);TS.key=ev.key;await ensureInfo().catch(()=>{});
+    const opts=TS.cols.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.label)+'</option>').join('');
+    $('cX').innerHTML=opts;$('cY').innerHTML=opts;$('cS').innerHTML='<option value="">–</option>'+opts;
+    $('cX').value='OPR';$('cY').value=TS.cols[3]?TS.cols[3].id:'OPR';
     renderTS();
-  } catch (e) {
-    $('tsInfo').textContent = e.message;
-  }
+  }catch(e){$('tsInfo').textContent=e.message}
 }
-
-// Draws the Team Stats table (columns, filter, sort, highlight) and then the chart.
-function renderTS() {
-  if (!TS) return;
-
-  const vis  = new Set(tsVis || DEFCOLS),
-        miss = Object.keys(TS.found).filter(k => !TS.found[k]);   // stats this event's data lacks
-
-  $('tsInfo').textContent =
-    ev.name + ' · ' + TS.teams.length + ' · ' + TS.matches + ' alliance-matches' +
-    (miss.length ? ' · not in this event\'s data: ' + miss.join(', ') : '') +
-    ' · per-team values are OPR-style estimates';
-
-  // Column checkboxes; changing one saves the choice and re-renders.
-  $('tsColList').innerHTML = TS.cols.map(c =>
-    '<label style="font-size:13px"><input type="checkbox" data-c="' + esc(c.id) + '"' + (vis.has(c.id) ? ' checked' : '') + '> ' + esc(c.label) + '</label>'
-  ).join('');
-
-  $('tsColList').querySelectorAll('input').forEach(i => i.onchange = () => {
-    tsVis = [...$('tsColList').querySelectorAll('input:checked')].map(x => x.dataset.c);
-    try { localStorage.setItem('frcTsCols', JSON.stringify(tsVis)); } catch (e) {}
-    renderTS();
-  });
-
-  const cols = TS.cols.filter(c => vis.has(c.id)),
-        q    = $('tsQ').value.trim(),    // team filter (prefix match)
-        hi   = $('cHi').value.trim();    // team to highlight
-
-  // Filter, then sort by the chosen column (missing values sort last).
-  const rows = TS.teams
-    .filter(x => !q || String(x).startsWith(q))
-    .sort((a, b) => ((TS.v[a][tsSort.id] ?? -1e9) - (TS.v[b][tsSort.id] ?? -1e9)) * tsSort.dir);
-
-  $('tsTable').innerHTML =
-    '<table class="ts"><tr><th data-s="team">Team</th>' +
-    cols.map(c => '<th data-s="' + esc(c.id) + '">' + esc(c.label) + (tsSort.id === c.id ? (tsSort.dir < 0 ? ' ▼' : ' ▲') : '') + '</th>').join('') +
-    '</tr>' +
-    rows.map(x =>
-      '<tr' + (String(x) === hi ? ' class="hi"' : '') + '><td>' + x + '</td>' +
-      cols.map(c => '<td>' + fmt(TS.v[x][c.id]) + '</td>').join('') + '</tr>'
-    ).join('') + '</table>';
-
-  // Clicking a header sorts by it (again = reverse; the Team header resets to OPR).
-  $('tsTable').querySelectorAll('th').forEach(h => h.onclick = () => {
-    const id = h.dataset.s;
-    if (id === 'team') tsSort = { id: 'OPR', dir: -1 };
-    else tsSort = { id, dir: tsSort.id === id ? -tsSort.dir : -1 };
-    renderTS();
-  });
-
+function renderTS(){
+  if(!TS)return;
+  const vis=new Set(tsVis||DEFCOLS),miss=Object.keys(TS.found).filter(k=>!TS.found[k]);
+  $('tsInfo').textContent=ev.name+' · '+TS.teams.length+' · '+TS.matches+' alliance-matches'+(miss.length?' · not in this event\'s data: '+miss.join(', '):'')+' · per-team values are OPR-style estimates';
+  $('tsColList').innerHTML=TS.cols.map(c=>'<label style="font-size:13px"><input type="checkbox" data-c="'+esc(c.id)+'"'+(vis.has(c.id)?' checked':'')+'> '+esc(c.label)+'</label>').join('');
+  $('tsColList').querySelectorAll('input').forEach(i=>i.onchange=()=>{tsVis=[...$('tsColList').querySelectorAll('input:checked')].map(x=>x.dataset.c);try{localStorage.setItem('frcTsCols',JSON.stringify(tsVis))}catch(e){}renderTS()});
+  const cols=TS.cols.filter(c=>vis.has(c.id)),q=$('tsQ').value.trim(),hi=$('cHi').value.trim();
+  const rows=TS.teams.filter(x=>!q||String(x).startsWith(q)||((TI[x]||{}).name||'').toLowerCase().includes(q.toLowerCase())).sort((a,b)=>((TS.v[a][tsSort.id]??-1e9)-(TS.v[b][tsSort.id]??-1e9))*tsSort.dir);
+  $('tsTable').innerHTML='<table class="ts"><tr><th data-s="team">Team</th>'+cols.map(c=>'<th data-s="'+esc(c.id)+'">'+esc(c.label)+(tsSort.id===c.id?(tsSort.dir<0?' ▼':' ▲'):'')+'</th>').join('')+'</tr>'+rows.map(x=>'<tr'+(String(x)===hi?' class="hi"':'')+'><td>'+teamCell(x)+'</td>'+cols.map(c=>'<td>'+fmt(TS.v[x][c.id])+'</td>').join('')+'</tr>').join('')+'</table>';
+  $('tsTable').querySelectorAll('th').forEach(h=>h.onclick=()=>{const id=h.dataset.s;if(id==='team'){tsSort={id:'OPR',dir:-1}}else tsSort={id,dir:tsSort.id===id?-tsSort.dir:-1};renderTS()});
   drawChart();
 }
-
-// CHART BUILDER: bar (top N of one stat) or bubble (X, Y and size from any columns). Can highlight one team.
-function drawChart() {
-  if (!TS || tab !== 'TS') return;
-
-  // Size the canvas for the screen's pixel density (sharp on retina displays).
-  const c   = $('tsCanvas'),
-        dpr = devicePixelRatio || 1,
-        w   = c.clientWidth,
-        h   = Math.round(Math.min(560, Math.max(300, w * .6)));
-  c.width = w * dpr; c.height = h * dpr; c.style.height = h + 'px';
-
-  const g = c.getContext('2d');
-  g.scale(dpr, dpr);
-  g.font = '12px system-ui';
-
-  // Read theme colors from CSS so the chart follows light/dark.
-  const cs  = getComputedStyle(document.documentElement),
-        fg  = cs.getPropertyValue('--fg'),
-        mut = cs.getPropertyValue('--mut'),
-        acc = cs.getPropertyValue('--acc'),
-        ln  = cs.getPropertyValue('--line');
-
-  const type = $('cType').value, X = $('cX').value, Y = $('cY').value, S = $('cS').value,
-        hi = $('cHi').value.trim(), N = Math.max(1, +$('cN').value || 12);
-
-  // Y and Size pickers only apply to bubble charts.
-  $('lY').classList.toggle('hide', type !== 'bubble');
-  $('lS').classList.toggle('hide', type !== 'bubble');
-
-  const lab = id => (TS.cols.find(k => k.id === id) || {}).label || '';
-
-  // One row per team with its X / Y / size values (skip teams missing needed values).
-  let rows = TS.teams
-    .map(x => ({ x: TS.v[x][X], y: TS.v[x][Y], s: S ? TS.v[x][S] : null, id: String(x) }))
-    .filter(r => r.x != null && (type === 'bar' || r.y != null));
-
-  g.fillStyle = fg;
-
-  if (type === 'bar') {
-    // ----- Bar chart: top N teams for column X -----
-    rows.sort((a, b) => b.x - a.x);
-    rows = rows.slice(0, N);
-
-    const max = Math.max(0, ...rows.map(r => r.x)),
-          min = Math.min(0, ...rows.map(r => r.x)),
-          pw  = w - 120,                                    // plot width
-          z   = 56 + (-min) / ((max - min) || 1) * pw,      // x position of the zero line
-          bh  = (h - 34) / (rows.length || 1);              // height per bar
-
-    g.fillStyle = mut;
-    g.fillText(lab(X), 56, 14);
-
-    rows.forEach((r, i) => {
-      const y  = 22 + i * bh,
-            bw = r.x / ((max - min) || 1) * pw;             // bar width (negative = bar goes left)
-
-      g.fillStyle = r.id === hi ? '#e8a300' : acc;
-      g.fillRect(z, y + 2, bw, Math.max(2, bh - 4));
-
-      g.fillStyle = fg;
-      g.fillText(r.id, 8, y + bh / 2 + 4);                              // team number
-      g.fillText(fmt(r.x), bw >= 0 ? z + bw + 4 : z + 4, y + bh / 2 + 4); // value
-    });
-
-  } else {
-    // ----- Bubble chart: X, Y positions; optional size -----
-    const xs = rows.map(r => r.x), ys = rows.map(r => r.y),
-          x0 = Math.min(...xs), x1 = Math.max(...xs),
-          y0 = Math.min(...ys), y1 = Math.max(...ys),
-          ss = rows.map(r => r.s).filter(v => v != null),
-          s0 = Math.min(...ss), s1 = Math.max(...ss);
-
-    // Plot area edges and value-to-pixel converters.
-    const L = 50, B = h - 34, T = 14, Rr = w - 20,
-          px = v => L + (v - x0) / ((x1 - x0) || 1) * (Rr - L),
-          py = v => B - (v - y0) / ((y1 - y0) || 1) * (B - T);
-
-    // Frame and axis labels (min / max of each axis and the column names).
-    g.strokeStyle = ln;
-    g.strokeRect(L, T, Rr - L, B - T);
-    g.fillStyle = mut;
-    g.fillText(fmt(x0), L, h - 18);
-    g.fillText(fmt(x1), Rr - 24, h - 18);
-    g.fillText(lab(X), (L + Rr) / 2 - 30, h - 4);
-    g.fillText(fmt(y0), 4, B);
-    g.fillText(fmt(y1), 4, T + 10);
-    g.fillText(lab(Y), L + 6, T + 12);
-
-    // Bubbles (radius 5-21 by size column, or 7 if no size). Labels only when not too crowded.
-    rows.forEach(r => {
-      const rad = r.s == null ? 7 : 5 + (r.s - s0) / ((s1 - s0) || 1) * 16;
-
-      g.globalAlpha = r.id === hi ? 1 : .55;
-      g.fillStyle = r.id === hi ? '#e8a300' : acc;
-      g.beginPath();
-      g.arc(px(r.x), py(r.y), rad, 0, 7);
-      g.fill();
-      g.globalAlpha = 1;
-
-      if (rows.length <= 80 || r.id === hi) {
-        g.fillStyle = fg;
-        g.fillText(r.id, px(r.x) + rad + 2, py(r.y) + 4);
-      }
-    });
+// Chart builder: bar (top N of one stat) or bubble (X, Y and size from any columns); highlight one team.
+function drawChart(){
+  if(!TS||tab!=='TS')return;
+  const c=$('tsCanvas'),dpr=devicePixelRatio||1,w=c.clientWidth,h=Math.round(Math.min(560,Math.max(300,w*.6)));
+  c.width=w*dpr;c.height=h*dpr;c.style.height=h+'px';
+  const g=c.getContext('2d');g.scale(dpr,dpr);g.font='12px system-ui';
+  const cs=getComputedStyle(document.documentElement),fg=cs.getPropertyValue('--fg'),mut=cs.getPropertyValue('--mut'),acc=cs.getPropertyValue('--acc'),ln=cs.getPropertyValue('--line');
+  const type=$('cType').value,X=$('cX').value,Y=$('cY').value,S=$('cS').value,hi=$('cHi').value.trim(),N=Math.max(1,+$('cN').value||12);
+  $('lY').classList.toggle('hide',type!=='bubble');$('lS').classList.toggle('hide',type!=='bubble');
+  const lab=id=>(TS.cols.find(k=>k.id===id)||{}).label||'';
+  let rows=TS.teams.map(x=>({x:TS.v[x][X],y:TS.v[x][Y],s:S?TS.v[x][S]:null,id:String(x)})).filter(r=>r.x!=null&&(type==='bar'||r.y!=null));
+  g.fillStyle=fg;
+  if(type==='bar'){
+    rows.sort((a,b)=>b.x-a.x);rows=rows.slice(0,N);
+    const max=Math.max(0,...rows.map(r=>r.x)),min=Math.min(0,...rows.map(r=>r.x)),pw=w-120,z=56+(-min)/((max-min)||1)*pw,bh=(h-34)/(rows.length||1);
+    g.fillStyle=mut;g.fillText(lab(X),56,14);
+    rows.forEach((r,i)=>{const y=22+i*bh,bw=r.x/((max-min)||1)*pw;g.fillStyle=r.id===hi?'#e8a300':acc;g.fillRect(z,y+2,bw,Math.max(2,bh-4));g.fillStyle=fg;g.fillText(r.id,8,y+bh/2+4);g.fillText(fmt(r.x),bw>=0?z+bw+4:z+4,y+bh/2+4)});
+  }else{
+    const xs=rows.map(r=>r.x),ys=rows.map(r=>r.y),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),ss=rows.map(r=>r.s).filter(v=>v!=null),s0=Math.min(...ss),s1=Math.max(...ss);
+    const L=50,B=h-34,T=14,Rr=w-20,px=v=>L+(v-x0)/((x1-x0)||1)*(Rr-L),py=v=>B-(v-y0)/((y1-y0)||1)*(B-T);
+    g.strokeStyle=ln;g.strokeRect(L,T,Rr-L,B-T);g.fillStyle=mut;
+    g.fillText(fmt(x0),L,h-18);g.fillText(fmt(x1),Rr-24,h-18);g.fillText(lab(X),(L+Rr)/2-30,h-4);g.fillText(fmt(y0),4,B);g.fillText(fmt(y1),4,T+10);g.fillText(lab(Y),L+6,T+12);
+    rows.forEach(r=>{const rad=r.s==null?7:5+(r.s-s0)/((s1-s0)||1)*16;g.globalAlpha=r.id===hi?1:.55;g.fillStyle=r.id===hi?'#e8a300':acc;g.beginPath();g.arc(px(r.x),py(r.y),rad,0,7);g.fill();g.globalAlpha=1;if(rows.length<=80||r.id===hi){g.fillStyle=fg;g.fillText(r.id,px(r.x)+rad+2,py(r.y)+4)}});
   }
 }
+$('tsRef').onclick=()=>loadTS(true);
+$('tsQ').oninput=renderTS;
+['cType','cX','cY','cS','cN','cHi'].forEach(id=>$(id).oninput=()=>{if(id==='cHi')renderTS();else drawChart()});
+addEventListener('resize',drawChart);
 
-// Team Stats controls.
-$('tsRef').onclick = () => loadTS(true);
-$('tsQ').oninput = renderTS;
+const saveRob=()=>{try{localStorage.setItem('frcRobots',JSON.stringify(ROBLOC))}catch(e){alert(t('storeFail'))}};
+async function loadRob(){if(ev)await ensureInfo().catch(()=>{});renderRob()}
+function renderRob(){
+  const q=$('rbQ').value.trim().toLowerCase(),all=[...new Set([...(ev?ETEAMS:[]),...Object.keys(ROBBASE),...Object.keys(ROBLOC)].map(String))].sort((a,b)=>a-b);
+  const rows=all.filter(x=>!q||x.startsWith(q)||((TI[x]||{}).name||'').toLowerCase().includes(q)||getRob(x).note.toLowerCase().includes(q));
+  $('rbList').innerHTML='<table><tr><th>Team</th><th>Type</th><th>Note</th></tr>'+rows.map(x=>'<tr><td>'+teamCell(x)+'</td><td>'+TAGS.map(g=>'<button data-t="'+x+'" data-g="'+g+'"'+(getRob(x).tags.includes(g)?' class="on"':'')+'>'+g+'</button>').join(' ')+'</td><td><input data-n="'+x+'" value="'+esc(getRob(x).note)+'" placeholder="e.g. B team of 2543" style="width:170px"></td></tr>').join('')+'</table>';
+  $('rbList').querySelectorAll('button').forEach(b=>b.onclick=()=>{const x=b.dataset.t,r=getRob(x),tg=r.tags.includes(b.dataset.g)?r.tags.filter(z=>z!==b.dataset.g):r.tags.concat(b.dataset.g);ROBLOC[x]={tags:tg,note:r.note};saveRob();renderRob()});
+  $('rbList').querySelectorAll('input').forEach(i=>i.onchange=()=>{const x=i.dataset.n,r=getRob(x);ROBLOC[x]={tags:r.tags,note:i.value.slice(0,200)};saveRob()});
+}
+$('rbQ').oninput=renderRob;
+$('rbAddB').onclick=()=>{const x=$('rbAdd').value.trim();if(!/^\d+$/.test(x))return;if(!ROBLOC[x])ROBLOC[x]=Object.assign({tags:[],note:''},ROBBASE[x]);saveRob();$('rbAdd').value='';renderRob()};
+$('rbExp').onclick=()=>{$('rbIO').value=JSON.stringify(Object.assign({},ROBBASE,ROBLOC),null,1);$('rbIO').select()};
+$('rbImp').onclick=()=>{try{Object.assign(ROBLOC,cleanRob(JSON.parse($('rbIO').value)));saveRob();$('rbIO').value='';renderRob()}catch(e){alert(t('badJson'))}};
 
-// Chart controls redraw the chart; the highlight box also re-renders the table row highlight.
-['cType', 'cX', 'cY', 'cS', 'cN', 'cHi'].forEach(id =>
-  $(id).oninput = () => { if (id === 'cHi') renderTS(); else drawChart(); }
-);
-addEventListener('resize', drawChart);
-
-
-/* =========================================================================
-   10. MATCH PREDICTOR
-   A team's rating = its estimated points contribution per match
-   (ridge-regularised least squares on alliance scores, pulled toward the
-   team's own history or the event average).
-   ========================================================================= */
-
-// <pcore>  (prediction math; marked so it can be tested/extracted)
-
-// Standard normal CDF: P(Z < z), using an Abramowitz-Stegun approximation of erf.
-const Phi = z => {
-  const s = z < 0 ? -1 : 1,
-        x = Math.abs(z) / Math.SQRT2,
-        u = 1 / (1 + .3275911 * x),
-        y = 1 - ((((1.061405429 * u - 1.453152027) * u + 1.421413741) * u - .284496736) * u + .254829592) * u * Math.exp(-x * x);
-  return .5 * (1 + s * y);
-};
-
-// Relative strength index (RSI) from a team's own qualification matches:
-//   RSI = average margin / average score. Scale-free, so it carries across seasons.
-// Returns { rsi, n (matches), mu (avg points per robot), sd (margin spread) } or null.
-function rsiOf(ms, team) {
-  let m = 0, s = 0, m2 = 0, n = 0;
-
-  for (const x of ms) {
-    if (!x.alliances || x.comp_level !== 'qm') continue;
-
-    const r = x.alliances.red, b = x.alliances.blue;
-    if (r.score < 0 || b.score < 0) continue;               // unplayed
-
-    // Which alliance was this team on?
-    const mine = r.team_keys.includes('frc' + team) ? r : b.team_keys.includes('frc' + team) ? b : null;
-    if (!mine) continue;
-
-    const opp = mine === r ? b : r,
-          d   = mine.score - opp.score;                      // margin of victory
-
-    m += d; m2 += d * d; s += (mine.score + opp.score) / 2; n++;
+// ===== Match Predictor =====
+// A team's rating = its estimated points contribution per match (ridge-regularised least squares on alliance scores, pulled toward the event average).
+// <pcore>
+const Phi=z=>{const s=z<0?-1:1,x=Math.abs(z)/Math.SQRT2,u=1/(1+.3275911*x),y=1-((((1.061405429*u-1.453152027)*u+1.421413741)*u-.284496736)*u+.254829592)*u*Math.exp(-x*x);return .5*(1+s*y)};
+// Relative strength index (RSI) from a team's own qualification matches: average margin / average score. Scale-free, so it carries across seasons.
+function rsiOf(ms,team){
+  let m=0,s=0,m2=0,n=0;
+  for(const x of ms){
+    if(!x.alliances||x.comp_level!=='qm')continue;
+    const r=x.alliances.red,b=x.alliances.blue;if(r.score<0||b.score<0)continue;
+    const mine=r.team_keys.includes('frc'+team)?r:b.team_keys.includes('frc'+team)?b:null;if(!mine)continue;
+    const opp=mine===r?b:r,d=mine.score-opp.score;m+=d;m2+=d*d;s+=(mine.score+opp.score)/2;n++;
   }
-
-  return n && s ? { rsi: m / s, n, mu: s / n / 3, sd: Math.sqrt(m2 / n) } : null;
+  return n&&s?{rsi:m/s,n,mu:s/n/3,sd:Math.sqrt(m2/n)}:null;
 }
-
-// Weight of each season: this season / last season / two seasons ago.
-const PW = [1, .5, .25];
-
-// Merges one team's per-season RSIs into a single prior.
-//   eff   = evidence weight (matches x season weight)
-//   trust = eff / (eff + 12)  (see priorMean)
-function mergeRSI(parts) {
-  let a = 0, w = 0;
-  parts.forEach(p => { const e = p.n * PW[p.d]; a += p.rsi * e; w += e; });
-  return w ? { rsi: a / w, eff: w } : null;
+const PW=[1,.5,.25];// weight of this season / last season / two seasons ago
+// Merge a team's per-season RSIs. eff = evidence weight (matches x season weight); trust = eff/(eff+12).
+function mergeRSI(parts){let a=0,w=0;parts.forEach(p=>{const e=p.n*PW[p.d];a+=p.rsi*e;w+=e});return w?{rsi:a/w,eff:w}:null}
+const priorMean=(p,mu)=>{const sh=p.eff/(p.eff+12);return Math.min(3*mu,Math.max(.2*mu,mu*(1+3*p.rsi*sh)))};
+// Ridge fit pulled toward each team's prior (its history) instead of one flat average; more history = stronger pull.
+function fitRatings(al,opt={}){
+  const pr=opt.prior||{},ts=new Set(al.flatMap(a=>a.teams));(opt.teams||[]).forEach(t=>ts.add(t));
+  const teams=[...ts],ix={},n=teams.length;
+  const mu=al.length>=6?al.reduce((s,a)=>s+a.score,0)/al.length/3:(opt.mu||0);
+  if(!n)return{r:{},mu};
+  teams.forEach((t,i)=>ix[t]=i);
+  const M=teams.map(()=>Array(n).fill(0)),b=teams.map(()=>[0]);
+  teams.forEach((t,i)=>{const p=pr[t],lam=1.5+(p?4*p.eff/(p.eff+12):0);M[i][i]+=lam;b[i][0]+=lam*(p?priorMean(p,mu):mu)});
+  al.forEach(a=>a.teams.forEach(t=>{const i=ix[t];b[i][0]+=a.score;a.teams.forEach(u=>M[i][ix[u]]++)}));
+  const X=solve(M,b),r={};teams.forEach((t,i)=>r[t]=X[i][0]);
+  return{r,mu};
 }
-
-// Converts a prior (RSI + evidence) into expected points per robot, kept between 0.2x and 3x the event average.
-const priorMean = (p, mu) => {
-  const sh = p.eff / (p.eff + 12);
-  return Math.min(3 * mu, Math.max(.2 * mu, mu * (1 + 3 * p.rsi * sh)));
-};
-
-// Ridge fit pulled toward each team's prior (its history) instead of one flat average;
-// more history = stronger pull.
-//   al  = list of {teams, score} alliance results
-//   opt = { prior: {team: {rsi,eff}}, teams: extra teams to include, mu: fallback average }
-// Returns { r: {team: rating}, mu }.
-function fitRatings(al, opt = {}) {
-  const pr = opt.prior || {},
-        ts = new Set(al.flatMap(a => a.teams));
-  (opt.teams || []).forEach(t => ts.add(t));
-
-  const teams = [...ts], ix = {}, n = teams.length;
-
-  // Average points per robot (needs at least 6 alliance results, else use the fallback).
-  const mu = al.length >= 6 ? al.reduce((s, a) => s + a.score, 0) / al.length / 3 : (opt.mu || 0);
-  if (!n) return { r: {}, mu };
-
-  teams.forEach((t, i) => ix[t] = i);
-  const M = teams.map(() => Array(n).fill(0)),
-        b = teams.map(() => [0]);
-
-  // Ridge term per team: lam pulls the rating toward its prior mean (or the event average).
-  teams.forEach((t, i) => {
-    const p = pr[t], lam = 1.5 + (p ? 4 * p.eff / (p.eff + 12) : 0);
-    M[i][i] += lam;
-    b[i][0] += lam * (p ? priorMean(p, mu) : mu);
-  });
-
-  // Data term: each alliance score is the sum of its teams' ratings.
-  al.forEach(a => a.teams.forEach(t => {
-    const i = ix[t];
-    b[i][0] += a.score;
-    a.teams.forEach(u => M[i][ix[u]]++);
-  }));
-
-  const X = solve(M, b), r = {};
-  teams.forEach((t, i) => r[t] = X[i][0]);
-  return { r, mu };
-}
-
-// Projected alliance score = sum of its teams' ratings (unknown teams count as average).
-const proj = (R, ts) => ts.reduce((s, t) => s + (R.r[t] ?? R.mu), 0);
-
-// Builds a prediction for every match of an event (ms = TBA matches, prior = team histories).
-// Every row is predicted using ONLY qualification matches played before it (plus team history),
-// so the track record is honest.
-function buildPred(ms, prior) {
-  prior = prior || {};
-
-  const ok = m => m.alliances.red.score >= 0 && m.alliances.blue.score >= 0;   // has been played
-  const mk = (m, c) => ({ teams: m.alliances[c].team_keys.map(k => k.slice(3)), score: m.alliances[c].score });
-
-  // Order: qualifications, then eighths, quarters, semis, finals; then by set and match number.
-  const co = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
-  const all = ms
-    .filter(m => m.alliances && m.alliances.red.team_keys.length && m.alliances.blue.team_keys.length)
-    .sort((a, b) => co[a.comp_level] - co[b.comp_level] || a.set_number - b.set_number || a.match_number - b.match_number);
-
-  const evTeams = [...new Set(all.flatMap(m => m.alliances.red.team_keys.concat(m.alliances.blue.team_keys)).map(k => k.slice(3)))];
-
-  // "covered" = at least 60% of teams have history, so early predictions are not flagged as low-data.
-  const covered = evTeams.length && evTeams.filter(t => prior[t]).length / evTeams.length >= .6;
-
-  // Played qualification matches, as [redAlliance, blueAlliance] pairs.
-  const qd = all.filter(m => m.comp_level === 'qm' && ok(m)),
-        al = qd.map(m => [mk(m, 'red'), mk(m, 'blue')]);
-
-  // Average points per robot across the whole event (fallback scale for early fits).
-  const muAll = al.length ? al.flat().reduce((s, a) => s + a.score, 0) / al.length / 2 / 3 : 0;
-
-  // fit(k) = ratings using only the first k played qualification matches (cached).
-  const flatTo = k => al.slice(0, k).flat(),
-        cache  = {},
-        fit    = k => cache[k] || (cache[k] = fitRatings(flatTo(k), { prior, teams: evTeams, mu: muAll }));
-
-  const Rfin = fit(al.length), rows = [], errs = [];
-
-  for (const m of all) {
-    const q = m.comp_level === 'qm',
-          // Qualification: use matches before this one. Playoffs: use all qualification matches.
-          k  = q ? qd.filter(x => x.match_number < m.match_number).length : al.length,
-          Rm = fit(k);
-
-    const red  = m.alliances.red.team_keys.map(x => x.slice(3)),
-          blue = m.alliances.blue.team_keys.map(x => x.slice(3));
-
-    const row = {
-      m,
-      label: q ? 'Q' + m.match_number : m.comp_level.toUpperCase() + ' ' + (m.comp_level === 'f' ? '' : m.set_number + '-') + m.match_number,
-      red, blue,
-      pr: proj(Rm, red),                 // projected red score
-      pb: proj(Rm, blue),                // projected blue score
-      played: ok(m),
-      rs: m.alliances.red.score,         // actual scores
-      bs: m.alliances.blue.score,
-      thin: k * 2 < 12 && !covered       // too little data to trust
-    };
-
-    // Margin error for played, well-supported matches (used to estimate sigma).
-    if (row.played && !row.thin) errs.push((row.rs - row.bs) - (row.pr - row.pb));
+const proj=(R,ts)=>ts.reduce((s,t)=>s+(R.r[t]??R.mu),0);
+// Every row is predicted using ONLY qualification matches played before it (plus team history), so the track record is honest.
+function buildPred(ms,prior,paths){
+  prior=prior||{};
+  const ks=paths?['auto','tele','end'].filter(k=>paths[k]):[];
+  const ok=m=>m.alliances.red.score>=0&&m.alliances.blue.score>=0;
+  const cv=(m,c)=>{const f={},o={};flat(m.score_breakdown&&m.score_breakdown[c],'',f);ks.forEach(k=>o[k]=f[paths[k]]||0);return o};
+  const mk=(m,c)=>({teams:m.alliances[c].team_keys.map(k=>k.slice(3)),score:m.alliances[c].score,c:ks.length?cv(m,c):null});
+  const co={qm:0,ef:1,qf:2,sf:3,f:4};
+  const all=ms.filter(m=>m.alliances&&m.alliances.red.team_keys.length&&m.alliances.blue.team_keys.length).sort((a,b)=>co[a.comp_level]-co[b.comp_level]||a.set_number-b.set_number||a.match_number-b.match_number);
+  const evTeams=[...new Set(all.flatMap(m=>m.alliances.red.team_keys.concat(m.alliances.blue.team_keys)).map(k=>k.slice(3)))];
+  const covered=evTeams.length&&evTeams.filter(t=>prior[t]).length/evTeams.length>=.6;
+  const qd=all.filter(m=>m.comp_level==='qm'&&ok(m)&&(!ks.length||m.score_breakdown)),al=qd.map(m=>[mk(m,'red'),mk(m,'blue')]);
+  const avg=f=>al.length?al.flat().reduce((s,a)=>s+f(a),0)/al.length/2/3:0,muAll=avg(a=>a.score);
+  const flatTo=k=>al.slice(0,k).flat(),cache={},fit=k=>cache[k]||(cache[k]=fitRatings(flatTo(k),{prior,teams:evTeams,mu:muAll}));
+  const cacheC={},fitC=(K,k)=>cacheC[K+k]||(cacheC[K+k]=fitRatings(flatTo(k).map(a=>({teams:a.teams,score:a.c[K]})),{prior,teams:evTeams,mu:avg(a=>a.c[K])}));
+  const Rfin=fit(al.length),rows=[],errs=[],errC={};ks.forEach(K=>errC[K]=[]);
+  for(const m of all){
+    const q=m.comp_level==='qm',k=q?qd.filter(x=>x.match_number<m.match_number).length:al.length,Rm=fit(k);
+    const red=m.alliances.red.team_keys.map(x=>x.slice(3)),blue=m.alliances.blue.team_keys.map(x=>x.slice(3));
+    const row={m,label:q?'Q'+m.match_number:m.comp_level.toUpperCase()+' '+(m.comp_level==='f'?'':m.set_number+'-')+m.match_number,red,blue,pr:proj(Rm,red),pb:proj(Rm,blue),played:ok(m),rs:m.alliances.red.score,bs:m.alliances.blue.score,thin:k*2<12&&!covered};
+    if(row.played&&!row.thin)errs.push((row.rs-row.bs)-(row.pr-row.pb));
+    if(ks.length){
+      const ar=row.played&&m.score_breakdown?cv(m,'red'):null,ab=ar?cv(m,'blue'):null;row.cmp={};
+      ks.forEach(K=>{const R=fitC(K,k),c={pr:proj(R,red),pb:proj(R,blue),ra:ar?ar[K]:null,ba:ab?ab[K]:null};row.cmp[K]=c;if(ar&&!row.thin)errC[K].push((c.ra-c.ba)-(c.pr-c.pb))});
+    }
     rows.push(row);
   }
-
-  // sigma = typical margin error (root mean square), at least 10; default 30 if too few samples.
-  const sigma = errs.length >= 8 ? Math.max(10, Math.sqrt(errs.reduce((s, e) => s + e * e, 0) / errs.length)) : 30;
-
-  // Win probability for each row, and how many played matches the model called correctly.
-  let good = 0, n = 0;
-  rows.forEach(r => {
-    r.p = Phi((r.pr - r.pb) / sigma);   // chance red wins
-    if (r.played && !r.thin && r.rs !== r.bs) {
-      n++;
-      if ((r.pr > r.pb) === (r.rs > r.bs)) good++;
-    }
-  });
-
-  return { rows, sigma, acc: { ok: good, n }, R: Rfin, nAl: al.length * 2 };
+  const sg=e=>e.length>=8?Math.max(3,Math.sqrt(e.reduce((s,x)=>s+x*x,0)/e.length)):null;
+  const sigma=Math.max(10,sg(errs)||30);
+  let good=0,n=0;
+  rows.forEach(r=>{r.p=Phi((r.pr-r.pb)/sigma);if(r.played&&!r.thin&&r.rs!==r.bs){n++;if((r.pr>r.pb)===(r.rs>r.bs))good++}
+    if(r.cmp)ks.forEach(K=>{const c=r.cmp[K];c.p=Phi((c.pr-c.pb)/(sg(errC[K])||Math.max(3,.5*Math.abs(c.pr+c.pb))))})});
+  return{rows,sigma,acc:{ok:good,n},R:Rfin,nAl:al.length*2,autoLabel:paths&&/count/i.test(paths.auto||'')?'Auto (fuel)':'Auto'};
 }
 // </pcore>
-
-// ---- TBA match fetching (cached per event) ----
-const MC = {};   // event key -> matches
-async function getMatchesFor(k, force) {
-  if (force || !MC[k]) MC[k] = await tba('/event/' + k + '/matches');
-  return MC[k];
+// Finds the auto / teleop / endgame fields in TBA's score breakdown. In 2026 the auto winner is decided by auto FUEL, so that field is preferred.
+function compPaths(ms){
+  const P=new Set();ms.filter(m=>m.score_breakdown).slice(0,40).forEach(m=>['red','blue'].forEach(c=>{const f={};flat(m.score_breakdown[c],'',f);Object.keys(f).forEach(k=>P.add(k))}));
+  const A=[...P],pk=l=>pickPath(l.toLowerCase().split(' ').filter(w=>w!=='fuel'),A);
+  const o={auto:pk('Hub Auto Fuel Count')||pk('Total Auto Points'),tele:pk('Total Teleop Points'),end:pk('End Game Tower Points')||pk('Total Tower Points')};
+  return o.auto||o.tele||o.end?o:null;
 }
-const getMatches = force => getMatchesFor(ev.key, force);   // matches for the selected event
-
-// Runs fn over items with at most n requests in flight at a time.
-async function pool(items, n, fn) {
-  let i = 0;
-  await Promise.all(Array.from({ length: n }, async () => {
-    while (i < items.length) await fn(items[i++]);
-  }));
-}
-
-// Team history: each team's matches in a season, from TBA (cached; errors become an empty list).
-const TM = {};
-const teamMatches = (t, y) => TM[t + '|' + y] || (TM[t + '|' + y] = tba('/team/frc' + t + '/matches/' + y).catch(() => []));
-
-// Builds priors for a list of teams: this season before the event, plus the previous seasons.
-//   o.ds      = season offsets to use (0 = this year, 1 = last year, 2 = two years ago)
-//   o.cutoff  = ignore this-season matches at or after this time
-//   o.exclude = event key to leave out
-// Returns { pri: {team: {rsi,eff}}, scale: {d, mu, sd} } where scale comes from the most recent season with data.
-async function loadPriors(teams, year, o, prog) {
-  const res = {}, jobs = [];
-  let done = 0;
-
-  teams.forEach(t => o.ds.forEach(d => jobs.push([t, d])));
-
-  await pool(jobs, 8, async ([t, d]) => {
-    let ms = await teamMatches(t, year - d);
-    if (d === 0) ms = ms.filter(x => x.event_key !== o.exclude && (x.time || x.predicted_time || 0) < o.cutoff);
-
-    const r = rsiOf(ms, t);
-    if (r) (res[t] = res[t] || []).push({ ...r, d });
-
-    if (prog) prog(++done, jobs.length);   // progress callback
+const MC={};
+async function getMatchesFor(k,force){if(force||!MC[k])MC[k]=await tba('/event/'+k+'/matches');return MC[k]}
+const getMatches=force=>getMatchesFor(ev.key,force);
+// Team history: each team's matches this season (before the event) and the previous two seasons, from TBA.
+async function pool(items,n,fn){let i=0;await Promise.all(Array.from({length:n},async()=>{while(i<items.length)await fn(items[i++])}))}
+const TM={};
+const teamMatches=(t,y)=>TM[t+'|'+y]||(TM[t+'|'+y]=tba('/team/frc'+t+'/matches/'+y).catch(()=>[]));
+async function loadPriors(teams,year,o,prog){
+  const res={},jobs=[];let done=0;
+  teams.forEach(t=>o.ds.forEach(d=>jobs.push([t,d])));
+  await pool(jobs,8,async([t,d])=>{
+    let ms=await teamMatches(t,year-d);
+    if(d===0)ms=ms.filter(x=>x.event_key!==o.exclude&&(x.time||x.predicted_time||0)<o.cutoff);
+    const r=rsiOf(ms,t);if(r)(res[t]=res[t]||[]).push({...r,d});
+    if(prog)prog(++done,jobs.length);
   });
-
-  const pri = {};
-  let sc = null;
-
-  for (const t in res) {
-    const m = mergeRSI(res[t]);
-    if (m) pri[t] = m;
-
-    // Keep the scale from the newest season seen across all teams.
-    const lp = res[t].sort((a, b) => a.d - b.d)[0];
-    if (!sc || lp.d < sc.d) sc = { d: lp.d, mu: lp.mu, sd: lp.sd };
-  }
-
-  return { pri, scale: sc };
+  const pri={};let sc=null;
+  for(const t in res){const m=mergeRSI(res[t]);if(m)pri[t]=m;const lp=res[t].sort((a,b)=>a.d-b.d)[0];if(!sc||lp.d<sc.d)sc={d:lp.d,mu:lp.mu,sd:lp.sd}}
+  return{pri,scale:sc};
 }
-
-// ---- Event predictor tab ----
-let PR = null;   // prediction data for the selected event
-
-// Loads matches and team history, then builds predictions. Returns PR (or null on error).
-async function loadPred(force) {
-  if (!ev) { PR = null; $('pmInfo').textContent = t('pickEvent'); $('pmList').innerHTML = ''; return null; }
-  if (!force && PR && PR.key === ev.key) return PR;   // already built
-
-  $('pmInfo').textContent = t('loading');
-  try {
-    const ms = await getMatches(force);
-
-    const teams = [...new Set(
-      ms.filter(m => m.alliances).flatMap(m => m.alliances.red.team_keys.concat(m.alliances.blue.team_keys)).map(k => k.slice(3))
-    )];
-
-    // Only use this season's matches from BEFORE the event started.
-    const times  = ms.map(m => m.time || m.predicted_time).filter(Boolean),
-          cutoff = times.length ? Math.min(...times) : Infinity;
-
-    const { pri } = await loadPriors(teams, +ev.year, { cutoff, exclude: ev.key, ds: [0, 1, 2] },
-      (d, n) => { $('pmInfo').textContent = t('loading') + ' ' + d + '/' + n; });   // live progress
-
-    PR = buildPred(ms, pri);
-    PR.key  = ev.key;
-    PR.hist = Object.keys(pri).length;   // teams with history
-    PR.nt   = teams.length;              // total teams
-  } catch (e) {
-    PR = null;
-    $('pmInfo').textContent = e.message;
-  }
+let PR=null;
+async function loadPred(force){
+  if(!ev){PR=null;$('pmInfo').textContent=t('pickEvent');$('pmList').innerHTML='';return null}
+  if(!force&&PR&&PR.key===ev.key)return PR;
+  $('pmInfo').textContent=t('loading');
+  try{
+    const ms=await getMatches(force);
+    const teams=[...new Set(ms.filter(m=>m.alliances).flatMap(m=>m.alliances.red.team_keys.concat(m.alliances.blue.team_keys)).map(k=>k.slice(3)))];
+    const times=ms.map(m=>m.time||m.predicted_time).filter(Boolean),cutoff=times.length?Math.min(...times):Infinity;
+    const {pri}=await loadPriors(teams,+ev.year,{cutoff,exclude:ev.key,ds:[0,1,2]},(d,n)=>{$('pmInfo').textContent=t('loading')+' '+d+'/'+n});
+    PR=buildPred(ms,pri,compPaths(ms));PR.key=ev.key;PR.hist=Object.keys(pri).length;PR.nt=teams.length;
+  }catch(e){PR=null;$('pmInfo').textContent=e.message}
   return PR;
 }
-
-// Confidence text = the projected winner's win probability, e.g. "72% Win Probability · Medium Confidence".
-const confTxt = (p, thin) => {
-  const c = Math.max(p, 1 - p);
-  return Math.round(c * 100) + '%  Win Probability · ' + (thin ? 'Low Confidence(little data)' : c >= .75 ? 'High Confidence' : c >= .6 ? 'Medium Confidence' : 'Low Confidence');
-};
-
-// Meter HTML: projected scores sit at the ends; the red share of the bar is red's win chance.
-const meter = (pr, pb, p) =>
-  '<div class="pmeter"><span class="pr">' + Math.round(pr) + '</span><div class="bar"><i style="width:' + (p * 100).toFixed(1) + '%"></i></div><span class="pb">' + Math.round(pb) + '</span></div>';
-
-// Colored alliance name ("RED" / "BLUE").
-const side = c => '<b class="' + (c === 'red' ? 'rw' : 'bw') + '">' + c.toUpperCase() + '</b>';
-
-// Draws the match cards for the event predictor (with the played/upcoming and team filters applied).
-function renderEvt() {
-  if (!PR) return;
-
-  const f = $('pmF').value, q = $('pmQ').value.trim();
-  const rows = PR.rows.filter(r =>
-    (f === 'all' || (f === 'played') === r.played) &&
-    (!q || r.red.concat(r.blue).includes(q))
-  );
-
-  // Summary line: model accuracy, typical error, history coverage.
-  $('pmInfo').textContent =
-    ev.name + ' · ' +
-    (PR.acc.n
-      ? 'called ' + PR.acc.ok + ' of ' + PR.acc.n + ' played matches (' + Math.round(100 * PR.acc.ok / PR.acc.n) + '%), each predicted from earlier matches only'
-      : 'not enough played matches to score the model yet') +
-    ' · typical margin error ±' + Math.round(PR.sigma) + ' pts · history for ' + PR.hist + '/' + PR.nt +
-    ' teams (earlier matches this season and the last two)';
-
-  $('pmList').innerHTML = rows.map(r => {
-    const pw   = r.pr >= r.pb ? 'red' : 'blue',                                     // projected winner
-          real = !r.played ? null : r.rs === r.bs ? 'tie' : r.rs > r.bs ? 'red' : 'blue',   // actual winner
-          mark = real && real !== 'tie' ? (pw === real ? ' <span class="ok">✓</span>' : ' <span class="no">✗</span>') : '';
-
-    return '<div class="pm"><div class="pmh"><b>' + esc(r.label) + '</b><span class="mut">' + (r.played ? 'played' : 'upcoming') + '</span></div>' +
-      '<div class="pmt"><span class="r">' + r.red.join(' ') + '</span><span class="b">' + r.blue.join(' ') + '</span></div>' +
-      meter(r.pr, r.pb, r.p) +
-      '<div class="pmr"><div>Projected<br>' + side(pw) + ' · ' + confTxt(r.p, r.thin) + '</div>' +
-      '<div>Actual<br>' + (real ? (real === 'tie' ? '<b>TIE</b>' : side(real)) + ' ' + r.rs + '–' + r.bs + mark : '<span class="mut">not played yet</span>') + '</div></div></div>';
-  }).join('') || '<span class="mut">–</span>';
+// Confidence = the projected winner's win probability. Projected scores sit at the ends of the meter; the red share of the bar is red's win chance.
+const confTxt=(p,thin)=>{const c=Math.max(p,1-p);return Math.round(c*100)+'% · '+(thin?'Low (little data)':c>=.75?'High':c>=.6?'Medium':'Low')};
+const meter=(pr,pb,p)=>'<div class="pmeter"><span class="pr">'+Math.round(pr)+'</span><div class="bar"><i style="width:'+(p*100).toFixed(1)+'%"></i></div><span class="pb">'+Math.round(pb)+'</span></div>';
+const side=c=>'<b class="'+(c==='red'?'rw':'bw')+'">'+c.toUpperCase()+'</b>';
+const cRow=(label,pr,pb,p,ra,ba)=>{const pw=pr>=pb?'red':'blue',real=ra==null?null:ra===ba?'tie':ra>ba?'red':'blue';return '<div class="pcr"><span class="mut">'+esc(label)+'</span><span class="rw">'+Math.round(pr)+'</span><div class="bar"><i style="width:'+(p*100).toFixed(0)+'%"></i></div><span class="bw">'+Math.round(pb)+'</span><span>'+side(pw)+' '+Math.round(Math.max(p,1-p)*100)+'%</span>'+(ra===undefined?'':'<span class="mut">'+(real?(real==='tie'?'TIE':side(real))+' '+ra+'–'+ba+(real!=='tie'?(real===pw?' ✓':' ✗'):''):'–')+'</span>')+'</div>'};
+const CLAB=()=>({auto:PR.autoLabel,tele:'Teleop',end:'Endgame'});
+function renderEvt(){
+  if(!PR)return;
+  const f=$('pmF').value,q=$('pmQ').value.trim();
+  const rows=PR.rows.filter(r=>(f==='all'||(f==='played')===r.played)&&(!q||r.red.concat(r.blue).includes(q)));
+  $('pmInfo').textContent=ev.name+' · '+(PR.acc.n?'called '+PR.acc.ok+' of '+PR.acc.n+' played matches ('+Math.round(100*PR.acc.ok/PR.acc.n)+'%), each predicted from earlier matches only':'not enough played matches to score the model yet')+' · typical margin error ±'+Math.round(PR.sigma)+' pts · history for '+PR.hist+'/'+PR.nt+' teams (earlier matches this season and the last two)';
+  $('pmList').innerHTML=rows.map(r=>{
+    const pw=r.pr>=r.pb?'red':'blue',real=!r.played?null:r.rs===r.bs?'tie':r.rs>r.bs?'red':'blue';
+    const mark=real&&real!=='tie'?(pw===real?' <span class="ok">✓</span>':' <span class="no">✗</span>'):'';
+    return '<div class="pm"><div class="pmh"><b>'+esc(r.label)+'</b><span class="mut">'+(r.played?'played':'upcoming')+'</span></div>'
+     +'<div class="pmt"><span class="r">'+r.red.join(' ')+'</span><span class="b">'+r.blue.join(' ')+'</span></div>'+meter(r.pr,r.pb,r.p)+(r.cmp?Object.keys(r.cmp).map(K=>cRow(CLAB()[K],r.cmp[K].pr,r.cmp[K].pb,r.cmp[K].p,r.cmp[K].ra,r.cmp[K].ba)).join(''):'')
+     +'<div class="pmr"><div>Projected<br>'+side(pw)+' · '+confTxt(r.p,r.thin)+'</div><div>Actual<br>'+(real?(real==='tie'?'<b>TIE</b>':side(real))+' '+r.rs+'–'+r.bs+mark:'<span class="mut">not played yet</span>')+'</div></div></div>';
+  }).join('')||'<span class="mut">–</span>';
 }
-
-// ---- Custom predictor tab ----
-// Independent of the selected event. For the teams typed in, it finds their events that season on TBA,
+// Custom predictor: independent of the selected event. For the teams typed in, it finds their events that season on TBA,
 // fits ratings inside each event, then averages each team's rating across events (weighted by matches played).
-const TC = {};                              // cache of team events
-let CU = null, cuTok = 0, cuTimer = null;   // last result, request token (drops stale responses), debounce timer
-const teamEvents = (t, y) => TC[t + '|' + y] || (TC[t + '|' + y] = tba('/team/frc' + t + '/events/' + y + '/keys'));
-
-async function loadCustom(teams, y) {
-  const key = [...teams].sort().join(',') + '|' + y;
-  if (CU && CU.key === key) return CU;   // same inputs as last time
-
-  // Every event any of these teams played this season.
-  const evs = [...new Set((await Promise.all(teams.map(t => teamEvents(t, y).catch(() => [])))).flat())];
-  const all = await Promise.all(evs.map(k => getMatchesFor(k).catch(() => [])));
-
-  const rat = {}, cnt = {}, mus = [];   // summed ratings, match counts, per-event averages
-  let ss = 0, nn = 0;                   // squared-error total and count (for sigma)
-
-  const mk = (m, c) => ({ teams: m.alliances[c].team_keys.map(k => k.slice(3)), score: m.alliances[c].score });
-
-  for (const ms of all) {
-    // Played qualification alliances for this event.
-    const al = ms
-      .filter(m => m.comp_level === 'qm' && m.alliances && m.alliances.red.score >= 0 && m.alliances.blue.score >= 0)
-      .flatMap(m => [mk(m, 'red'), mk(m, 'blue')]);
-    if (al.length < 6) continue;   // too small to fit
-
-    const R = fitRatings(al);
-    mus.push(R.mu);
-
-    // Accumulate squared error for the sigma estimate.
-    al.forEach(a => { const e = a.score - proj(R, a.teams); ss += e * e; nn++; });
-
-    // Add each requested team's rating, weighted by how many matches it played here.
-    teams.forEach(t => {
-      const c = al.filter(a => a.teams.includes(t)).length;
-      if (c) { rat[t] = (rat[t] || 0) + R.r[t] * c; cnt[t] = (cnt[t] || 0) + c; }
+const TC={};let CU=null,cuTok=0,cuTimer=null;
+const teamEvents=(t,y)=>TC[t+'|'+y]||(TC[t+'|'+y]=tba('/team/frc'+t+'/events/'+y+'/keys'));
+async function loadCustom(teams,y){
+  const key=[...teams].sort().join(',')+'|'+y;
+  if(CU&&CU.key===key)return CU;
+  const evs=[...new Set((await Promise.all(teams.map(t=>teamEvents(t,y).catch(()=>[])))).flat())];
+  const all=await Promise.all(evs.map(k=>getMatchesFor(k).catch(()=>[])));
+  const rat={},cnt={},mus=[],CM={};let ss=0,nn=0,fuel=false;
+  const mk=(m,c)=>({teams:m.alliances[c].team_keys.map(k=>k.slice(3)),score:m.alliances[c].score});
+  for(const ms of all){
+    const al=ms.filter(m=>m.comp_level==='qm'&&m.alliances&&m.alliances.red.score>=0&&m.alliances.blue.score>=0).flatMap(m=>[mk(m,'red'),mk(m,'blue')]);
+    if(al.length<6)continue;
+    const cp=compPaths(ms);
+    if(cp)['auto','tele','end'].forEach(K=>{
+      if(!cp[K])return;
+      const aK=ms.filter(m=>m.comp_level==='qm'&&m.score_breakdown&&m.alliances.red.score>=0&&m.alliances.blue.score>=0).flatMap(m=>['red','blue'].map(c=>{const f={};flat(m.score_breakdown[c],'',f);return{teams:m.alliances[c].team_keys.map(k=>k.slice(3)),score:f[cp[K]]||0}}));
+      if(aK.length<6)return;
+      const RK=fitRatings(aK),o=CM[K]||(CM[K]={r:{},c:{},mus:[],ss:0,nn:0});o.mus.push(RK.mu);
+      aK.forEach(a=>{const e=a.score-proj(RK,a.teams);o.ss+=e*e;o.nn++});
+      teams.forEach(t=>{const c=aK.filter(a=>a.teams.includes(t)).length;if(c){o.r[t]=(o.r[t]||0)+RK.r[t]*c;o.c[t]=(o.c[t]||0)+c}});
+      if(K==='auto')fuel=/count/i.test(cp.auto);
     });
+    const R=fitRatings(al);mus.push(R.mu);
+    al.forEach(a=>{const e=a.score-proj(R,a.teams);ss+=e*e;nn++});
+    teams.forEach(t=>{const c=al.filter(a=>a.teams.includes(t)).length;if(c){rat[t]=(rat[t]||0)+R.r[t]*c;cnt[t]=(cnt[t]||0)+c}});
   }
-
-  teams.forEach(t => { if (cnt[t]) rat[t] /= cnt[t]; });   // weighted average
-
-  let mu    = mus.length ? mus.reduce((x, z) => x + z) / mus.length : 0,
-      sigma = nn >= 20 ? Math.max(10, 1.25 * Math.sqrt(2 * ss / nn)) : 30;
-
-  // History: the previous two seasons, converted to points with this season's scale
-  // (or the last season's scale if there is no data yet).
-  const { pri, scale } = await loadPriors(teams, +y, { cutoff: Infinity, exclude: '', ds: [1, 2] });
-  if (!mu && scale) { mu = scale.mu; sigma = Math.max(10, .8 * scale.sd); }
-
-  // Blend each team's current rating with its historical prior.
-  const hist = {};
-  teams.forEach(t => {
-    const p = pri[t];
-    if (!p || !mu) return;
-    const lam = 1.5 + 4 * p.eff / (p.eff + 12), c = cnt[t] || 0;
-    rat[t] = ((rat[t] || 0) * c + lam * priorMean(p, mu)) / (c + lam);
-    hist[t] = 1;
-  });
-
-  CU = { key, R: { r: rat, mu }, cnt, hist, events: mus.length, sigma };
+  teams.forEach(t=>{if(cnt[t])rat[t]/=cnt[t]});
+  let mu=mus.length?mus.reduce((x,z)=>x+z)/mus.length:0,sigma=nn>=20?Math.max(10,1.25*Math.sqrt(2*ss/nn)):30;
+  // History: the previous two seasons, converted to points with this season's scale (or the last season's scale if there is no data yet).
+  const {pri,scale}=await loadPriors(teams,+y,{cutoff:Infinity,exclude:'',ds:[1,2]});
+  if(!mu&&scale){mu=scale.mu;sigma=Math.max(10,.8*scale.sd)}
+  const hist={};
+  teams.forEach(t=>{const p=pri[t];if(!p||!mu)return;const lam=1.5+4*p.eff/(p.eff+12),c=cnt[t]||0;rat[t]=((rat[t]||0)*c+lam*priorMean(p,mu))/(c+lam);hist[t]=1});
+  const comp={};
+  Object.keys(CM).forEach(K=>{const o=CM[K];teams.forEach(t=>{if(o.c[t])o.r[t]/=o.c[t]});comp[K]={R:{r:o.r,mu:o.mus.reduce((x,z)=>x+z)/o.mus.length},sigma:o.nn>=20?Math.max(3,1.25*Math.sqrt(2*o.ss/o.nn)):Math.max(3,.5*mu*3)}});
+  CU={key,R:{r:rat,mu},cnt,hist,events:mus.length,sigma,comp,autoLabel:fuel?'Auto (fuel)':'Auto'};
   return CU;
 }
-
-// Reads the six team boxes, runs the prediction and draws the result.
-function renderCust() {
-  const g = ids => ids.map(i => $(i).value.trim()).filter(Boolean),
-        r = g(['cr1', 'cr2', 'cr3']),
-        b = g(['cb1', 'cb2', 'cb3']),
-        y = $('cuY').value,
-        teams = [...new Set(r.concat(b))];
-
-  if (!r.length || !b.length) {
-    $('cuOut').innerHTML = '<span class="mut">Enter at least one team on each alliance.</span>';
-    $('cuInfo').textContent = '';
-    return;
-  }
-
-  const tok = ++cuTok;   // ignore this response if the user types again before it arrives
-  $('cuInfo').textContent = t('loading');
-
-  loadCustom(teams, y).then(C => {
-    if (tok !== cuTok) return;
-
-    const pr = proj(C.R, r), pb = proj(C.R, b),
-          p  = Phi((pr - pb) / C.sigma),
-          thin = teams.some(x => (C.cnt[x] || 0) < 8 && !C.hist[x]),   // any team with little data and no history
-          pw = pr >= pb ? 'red' : 'blue';
-
-    // One line per team: rating, matches counted, and whether history was used.
-    const chip = (x, c) => '<span class="' + c + '">' + esc(x) + ': ' +
-      (C.R.r[x] != null ? fmt(C.R.r[x]) + ' (' + (C.cnt[x] || 0) + ' matches' + (C.hist[x] ? ' + history' : '') + ')' : 'no data') + '</span>';
-
-    $('cuInfo').textContent =
-      'TBA ' + y + ' qualification data from ' + C.events + ' event(s) plus the last two seasons · teams with no data count as an average team · typical margin error ±' + Math.round(C.sigma) + ' pts';
-
-    $('cuOut').innerHTML =
-      '<div class="pm">' + meter(pr, pb, p) +
-      '<div class="pmr"><div>Projected winner<br>' + side(pw) + ' · ' + confTxt(p, thin) + '</div><div>Projected score<br>' + Math.round(pr) + ' – ' + Math.round(pb) + '</div></div>' +
-      '<div class="pmt" style="margin-top:8px"><span>' + r.map(x => chip(x, 'r')).join('<br>') + '</span><span style="text-align:right">' + b.map(x => chip(x, 'b')).join('<br>') + '</span></div></div>';
-  }).catch(e => { if (tok === cuTok) $('cuInfo').textContent = e.message; });
+function renderCust(){
+  const g=ids=>ids.map(i=>$(i).value.trim()).filter(Boolean),r=g(['cr1','cr2','cr3']),b=g(['cb1','cb2','cb3']),y=$('cuY').value,teams=[...new Set(r.concat(b))];
+  if(!r.length||!b.length){$('cuOut').innerHTML='<span class="mut">Enter at least one team on each alliance.</span>';$('cuInfo').textContent='';return}
+  const tok=++cuTok;$('cuInfo').textContent=t('loading');
+  loadCustom(teams,y).then(C=>{
+    if(tok!==cuTok)return;
+    const b2=b,pr=proj(C.R,r),pb=proj(C.R,b),p=Phi((pr-pb)/C.sigma),thin=teams.some(x=>(C.cnt[x]||0)<8&&!C.hist[x]),pw=pr>=pb?'red':'blue';
+    const chip=(x,c)=>'<span class="'+c+'">'+esc(x)+': '+(C.R.r[x]!=null?fmt(C.R.r[x])+' ('+(C.cnt[x]||0)+' matches'+(C.hist[x]?' + history':'')+')':'no data')+'</span>';
+    $('cuInfo').textContent='TBA '+y+' qualification data from '+C.events+' event(s) plus the last two seasons · teams with no data count as an average team · typical margin error ±'+Math.round(C.sigma)+' pts';
+    $('cuOut').innerHTML='<div class="pm">'+meter(pr,pb,p)+'<div class="pmr"><div>Projected winner<br>'+side(pw)+' · '+confTxt(p,thin)+'</div><div>Projected score<br>'+Math.round(pr)+' – '+Math.round(pb)+'</div></div>'
+     +['auto','tele','end'].filter(K=>C.comp[K]).map(K=>{const q=C.comp[K],a=proj(q.R,r),b=proj(q.R,b2);return cRow({auto:C.autoLabel,tele:'Teleop',end:'Endgame'}[K],a,b,Phi((a-b)/q.sigma))}).join('')+'<div class="pmt" style="margin-top:8px"><span>'+r.map(x=>chip(x,'r')).join('<br>')+'</span><span style="text-align:right">'+b.map(x=>chip(x,'b')).join('<br>')+'</span></div></div>';
+  }).catch(e=>{if(tok===cuTok)$('cuInfo').textContent=e.message});
 }
+['pmF','pmQ'].forEach(id=>$(id).oninput=renderEvt);
+$('pmRef').onclick=()=>loadPred(true).then(renderEvt);
+$('cuY').innerHTML=FIELDS.map(f=>'<option>'+f[1]+'</option>').join('');$('cuY').value=seasonYear();$('cuY').onchange=renderCust;
+['cr1','cr2','cr3','cb1','cb2','cb3'].forEach(id=>$(id).oninput=()=>{clearTimeout(cuTimer);cuTimer=setTimeout(renderCust,500)});
 
-// Predictor controls.
-['pmF', 'pmQ'].forEach(id => $(id).oninput = renderEvt);
-$('pmRef').onclick = () => loadPred(true).then(renderEvt);
-
-// Season dropdown for the custom predictor.
-$('cuY').innerHTML = FIELDS.map(f => '<option>' + f[1] + '</option>').join('');
-$('cuY').value = seasonYear();
-$('cuY').onchange = renderCust;
-
-// Team boxes re-run the prediction 500 ms after typing stops (debounce).
-['cr1', 'cr2', 'cr3', 'cb1', 'cb2', 'cb3'].forEach(id =>
-  $(id).oninput = () => { clearTimeout(cuTimer); cuTimer = setTimeout(renderCust, 500); }
-);
-
-
-/* =========================================================================
-   11. THEME (System / Light / Dark)
-   ========================================================================= */
-
-const root = document.documentElement;
-
-// Applies a theme: 'system' removes the override; 'light'/'dark' set data-theme. Also highlights the button.
-function applyTheme(m) {
-  if (m === 'system') root.removeAttribute('data-theme');
-  else root.dataset.theme = m;
-
-  pick(['thSystem', 'thLight', 'thDark'], 'th' + m[0].toUpperCase() + m.slice(1));
-  if (tab === 'TS' && TS) drawChart();   // chart reads CSS colors, so redraw
+// ===== Theme (System / Light / Dark) =====
+const root=document.documentElement;
+function applyTheme(m){if(m==='system')root.removeAttribute('data-theme');else root.dataset.theme=m;pick(['thSystem','thLight','thDark'],'th'+m[0].toUpperCase()+m.slice(1));if(tab==='TS'&&TS)drawChart()}
+// Uses the View Transitions API for a circular reveal from the clicked button; falls back to the CSS fade.
+function setTheme(m,x,y){
+  try{localStorage.setItem('frcTheme',m)}catch(e){}
+  if(!document.startViewTransition||matchMedia('(prefers-reduced-motion:reduce)').matches){applyTheme(m);return}
+  const t=document.startViewTransition(()=>applyTheme(m));
+  t.ready.then(()=>root.animate({clipPath:['circle(0px at '+x+'px '+y+'px)','circle('+Math.hypot(innerWidth,innerHeight)+'px at '+x+'px '+y+'px)']},{duration:650,easing:'ease-in-out',pseudoElement:'::view-transition-new(root)'})).catch(()=>{});
 }
-
-// Saves the theme and applies it. Uses the View Transitions API for a circular reveal
-// from the clicked button; falls back to the CSS fade (or nothing for reduced motion).
-function setTheme(m, x, y) {
-  try { localStorage.setItem('frcTheme', m); } catch (e) {}
-
-  if (!document.startViewTransition || matchMedia('(prefers-reduced-motion:reduce)').matches) {
-    applyTheme(m);
-    return;
-  }
-
-  const vt = document.startViewTransition(() => applyTheme(m));
-  vt.ready.then(() => root.animate(
-    { clipPath: ['circle(0px at ' + x + 'px ' + y + 'px)', 'circle(' + Math.hypot(innerWidth, innerHeight) + 'px at ' + x + 'px ' + y + 'px)'] },
-    { duration: 650, easing: 'ease-in-out', pseudoElement: '::view-transition-new(root)' }
-  )).catch(() => {});
-}
-
-[['thSystem', 'system'], ['thLight', 'light'], ['thDark', 'dark']].forEach(([id, m]) =>
-  $(id).onclick = e => setTheme(m, e.clientX, e.clientY)
-);
-
-// Restore the saved theme on load.
-let savedTheme = 'system';
-try { savedTheme = localStorage.getItem('frcTheme') || 'system'; } catch (e) {}
+[['thSystem','system'],['thLight','light'],['thDark','dark']].forEach(([id,m])=>$(id).onclick=e=>setTheme(m,e.clientX,e.clientY));
+let savedTheme='system';try{savedTheme=localStorage.getItem('frcTheme')||'system'}catch(e){}
 applyTheme(savedTheme);
 
-
-/* =========================================================================
-   12. LANGUAGE (i18n)
-   ========================================================================= */
-
-// K = the list of text keys. Each language string in D is a "|"-separated list
-// in EXACTLY this order, so the Nth item in a language string translates the Nth key.
-// To add a key: append it here AND append a translation to the end of every language string.
-const K = [
-  "scout", "map", "stat", "rank", "pred", "data", "set", "field", "tbaKey", "saveKey",
-  "evPh", "find", "clear", "event", "eventOn", "noEvent", "teamNum", "matchNo", "team", "replay",
-  "red", "blue", "start", "auto", "tele", "clearPhase", "saveMatch", "play", "pause", "appearance",
-  "system", "light", "dark", "language", "keyNote", "howTo", "createdBy", "phase", "all", "radius",
-  "starts", "speed", "heat", "live", "teamTotal", "none", "off", "soon", "saved", "exportJ",
-  "importJ", "ioPh", "del", "nothing", "noData", "pickEvent", "loading", "rankH", "played", "endgame",
-  "startSet", "noStart", "pts", "enterNums", "nothingRec", "replaceQ", "storeFail", "badJson", "notList", "imported",
-  "needKey", "keySaved", "rejected", "notFound", "noNet", "noMatch", "pickOne", "noRank", "rankFor", "epaFor",
-  "noEpa", "heatEmpty", "samples", "matchesN",
-  "ts", "predEv", "predCu", "log"
-];
-
-// D = translations, one "|"-separated string per language code (order = K above).
-const D = {
-  "en": "Scout|Heatmap|Statbotics (EPA)|Event rankings|Match Predictor|Heatmap Import/Export|Settings|Field|TBA key|Save key|Event name, code, city or state/region (e.g. casd, San Diego, California)|Find event|Clear event|Event|All tabs show this event only.|No event selected. Scout data and event data are shown for all events.|Team (Number)|Match|Team|Replay|Red|Blue|Start|Auto|Teleop|Clear phase|Save match|Play|Pause|Appearance|System|Light|Dark|Language|Free read key: thebluealliance.com/account. Stored on this device only.|Start: tap where the robot begins (drag to adjust). Auto/Teleop: press and drag to follow the robot, hold still where it sits, lift if you lose it. Blue side is left, red side is right.|Created by MystiqueCanDoThings with the aid of Claude.|Phase|All|Radius|Starts|Speed|Heat|Builds as it plays|Team total|None|Off|Match Predictor is coming soon.|Saved matches|Export JSON|Import JSON|Export fills this box. Paste JSON here and press Import to merge.|Delete|Nothing saved yet.|No data|Pick an event above first.|Loading…|Rank|Played|Endgame|Start set|No start|pts|Enter team and match number|Nothing recorded yet|This match is already saved. Replace it?|Could not save to this device (storage full or blocked). Export your data now.|Invalid JSON|Expected a list of matches|Imported|Paste your TBA API key above first.|Key saved on this device.|TBA rejected the key.|Event not found.|Could not reach The Blue Alliance. Check the key and your connection.|No events match|Closest matches, pick one:|No rankings posted yet.|Rankings for|EPA for|Statbotics has no EPA for this event yet.|Save a match to see a heatmap.|samples|match(es)|Team Stats|Event Predictor|Custom Predictor|Changelog",
-
-  "es": "Explorar|Mapa de calor|Statbotics (EPA)|Clasificación del evento|Predictor de partidos|Importar/Exportar mapa de calor|Ajustes|Campo|Clave TBA|Guardar clave|Nombre, código, ciudad o estado/región del evento (p. ej. casd, San Diego, California)|Buscar evento|Borrar evento|Evento|Todas las pestañas muestran solo este evento.|Ningún evento seleccionado. Se muestran los datos de todos los eventos.|Equipo (número)|Partido|Equipo|Repetición|Rojo|Azul|Inicio|Auto|Teleop|Borrar fase|Guardar partido|Reproducir|Pausa|Apariencia|Sistema|Claro|Oscuro|Idioma|Clave de lectura gratuita: thebluealliance.com/account. Se guarda solo en este dispositivo.|Inicio: toca donde empieza el robot (arrastra para ajustar). Auto/Teleop: mantén pulsado y arrastra para seguir al robot, quédate quieto donde esté, levanta el dedo si lo pierdes. El lado azul está a la izquierda y el rojo a la derecha.|Creado por MystiqueCanDoThings.|Fase|Todo|Radio|Inicios|Velocidad|Calor|Se construye al reproducir|Total del equipo|Ninguno|Apagado|El predictor de partidos llegará pronto.|Partidos guardados|Exportar JSON|Importar JSON|Al exportar se rellena este cuadro. Pega JSON aquí y pulsa Importar para combinar.|Eliminar|Aún no hay nada guardado.|Sin datos|Primero elige un evento arriba.|Cargando…|Pos.|Jugados|Final|Inicio fijado|Sin inicio|pts|Introduce el equipo y el número de partido|Aún no se ha registrado nada|Este partido ya está guardado. ¿Reemplazarlo?|No se pudo guardar en este dispositivo (almacenamiento lleno o bloqueado). Exporta tus datos ahora.|JSON no válido|Se esperaba una lista de partidos|Importados|Pega primero tu clave de la API de TBA arriba.|Clave guardada en este dispositivo.|TBA rechazó la clave.|Evento no encontrado.|No se pudo conectar con The Blue Alliance. Revisa la clave y tu conexión.|Ningún evento coincide|Coincidencias más cercanas, elige una:|Aún no hay clasificación publicada.|Clasificación de|EPA de|Statbotics aún no tiene EPA para este evento.|Guarda un partido para ver un mapa de calor.|muestras|partido(s)|Estadísticas de equipos|Predictor del evento|Predictor personalizado|Registro de cambios",
-
-  "fr": "Scouting|Carte thermique|Statbotics (EPA)|Classement de l'événement|Prédicteur de matchs|Import/Export carte thermique|Réglages|Terrain|Clé TBA|Enregistrer la clé|Nom, code, ville ou état/région de l'événement (ex. casd, San Diego, Californie)|Trouver l'événement|Effacer l'événement|Événement|Tous les onglets affichent uniquement cet événement.|Aucun événement sélectionné. Les données de tous les événements sont affichées.|Équipe (numéro)|Match|Équipe|Replay|Rouge|Bleu|Départ|Auto|Téléop|Effacer la phase|Enregistrer le match|Lecture|Pause|Apparence|Système|Clair|Sombre|Langue|Clé de lecture gratuite : thebluealliance.com/account. Stockée uniquement sur cet appareil.|Départ : touchez l'endroit où le robot commence (glissez pour ajuster). Auto/Téléop : appuyez et glissez pour suivre le robot, restez immobile là où il s'arrête, levez le doigt si vous le perdez. Le côté bleu est à gauche, le rouge à droite.|Créé par MystiqueCanDoThings.|Phase|Tout|Rayon|Départs|Vitesse|Chaleur|Se construit pendant la lecture|Total de l'équipe|Aucun|Désactivé|Le prédicteur de matchs arrive bientôt.|Matchs enregistrés|Exporter en JSON|Importer du JSON|L'export remplit cette zone. Collez du JSON ici et appuyez sur Importer pour fusionner.|Supprimer|Rien d'enregistré pour l'instant.|Aucune donnée|Choisissez d'abord un événement ci-dessus.|Chargement…|Rang|Joués|Fin de match|Départ défini|Pas de départ|pts|Saisissez l'équipe et le numéro de match|Rien d'enregistré pour l'instant|Ce match est déjà enregistré. Le remplacer ?|Impossible d'enregistrer sur cet appareil (stockage plein ou bloqué). Exportez vos données maintenant.|JSON invalide|Une liste de matchs était attendue|Importés|Collez d'abord votre clé API TBA ci-dessus.|Clé enregistrée sur cet appareil.|TBA a refusé la clé.|Événement introuvable.|Impossible de joindre The Blue Alliance. Vérifiez la clé et votre connexion.|Aucun événement ne correspond|Résultats les plus proches, choisissez-en un :|Aucun classement publié pour l'instant.|Classement de|EPA de|Statbotics n'a pas encore d'EPA pour cet événement.|Enregistrez un match pour voir une carte thermique.|échantillons|match(s)|Statistiques des équipes|Prédicteur d'événement|Prédicteur personnalisé|Journal des modifications",
-
-  "de": "Scouting|Heatmap|Statbotics (EPA)|Event-Rangliste|Spielvorhersage|Heatmap Import/Export|Einstellungen|Spielfeld|TBA-Schlüssel|Schlüssel speichern|Eventname, Code, Stadt oder Bundesstaat/Region (z. B. casd, San Diego, Kalifornien)|Event suchen|Event entfernen|Event|Alle Tabs zeigen nur dieses Event.|Kein Event ausgewählt. Daten aller Events werden angezeigt.|Team (Nummer)|Match|Team|Wiedergabe|Rot|Blau|Start|Auto|Teleop|Phase löschen|Match speichern|Abspielen|Pause|Darstellung|System|Hell|Dunkel|Sprache|Kostenloser Lese-Schlüssel: thebluealliance.com/account. Wird nur auf diesem Gerät gespeichert.|Start: Tippe auf die Startposition des Roboters (zum Anpassen ziehen). Auto/Teleop: Drücken und ziehen, um dem Roboter zu folgen, an Ort und Stelle halten, wo er steht, loslassen, wenn du ihn verlierst. Die blaue Seite ist links, die rote rechts.|Erstellt von MystiqueCanDoThings.|Phase|Alle|Radius|Starts|Tempo|Hitze|Baut sich beim Abspielen auf|Teamsumme|Keine|Aus|Die Spielvorhersage kommt bald.|Gespeicherte Matches|JSON exportieren|JSON importieren|Der Export füllt dieses Feld. JSON hier einfügen und auf Importieren drücken, um es zusammenzuführen.|Löschen|Noch nichts gespeichert.|Keine Daten|Wähle oben zuerst ein Event.|Lädt…|Rang|Gespielt|Endspiel|Start gesetzt|Kein Start|Pkt.|Team- und Matchnummer eingeben|Noch nichts aufgezeichnet|Dieses Match ist bereits gespeichert. Ersetzen?|Speichern auf diesem Gerät nicht möglich (Speicher voll oder blockiert). Exportiere jetzt deine Daten.|Ungültiges JSON|Eine Liste von Matches wurde erwartet|Importiert|Füge oben zuerst deinen TBA-API-Schlüssel ein.|Schlüssel auf diesem Gerät gespeichert.|TBA hat den Schlüssel abgelehnt.|Event nicht gefunden.|The Blue Alliance nicht erreichbar. Prüfe den Schlüssel und deine Verbindung.|Keine passenden Events|Beste Treffer, wähle einen:|Noch keine Rangliste veröffentlicht.|Rangliste für|EPA für|Statbotics hat für dieses Event noch keine EPA.|Speichere ein Match, um eine Heatmap zu sehen.|Messpunkte|Match(es)|Teamstatistiken|Event-Vorhersage|Eigene Vorhersage|Änderungsprotokoll",
-
-  "it": "Scouting|Mappa di calore|Statbotics (EPA)|Classifica evento|Previsione partite|Importa/Esporta mappa di calore|Impostazioni|Campo|Chiave TBA|Salva chiave|Nome, codice, città o stato/regione dell'evento (es. casd, San Diego, California)|Trova evento|Rimuovi evento|Evento|Tutte le schede mostrano solo questo evento.|Nessun evento selezionato. Vengono mostrati i dati di tutti gli eventi.|Squadra (numero)|Partita|Squadra|Replay|Rosso|Blu|Inizio|Auto|Teleop|Cancella fase|Salva partita|Riproduci|Pausa|Aspetto|Sistema|Chiaro|Scuro|Lingua|Chiave di lettura gratuita: thebluealliance.com/account. Salvata solo su questo dispositivo.|Inizio: tocca dove parte il robot (trascina per regolare). Auto/Teleop: premi e trascina per seguire il robot, resta fermo dove si ferma, solleva il dito se lo perdi. Il lato blu è a sinistra, quello rosso a destra.|Creato da MystiqueCanDoThings.|Fase|Tutto|Raggio|Inizi|Velocità|Calore|Si costruisce durante la riproduzione|Totale squadra|Nessuno|Off|Il previsore di partite arriva presto.|Partite salvate|Esporta JSON|Importa JSON|L'esportazione riempie questa casella. Incolla qui il JSON e premi Importa per unire.|Elimina|Ancora nulla di salvato.|Nessun dato|Scegli prima un evento qui sopra.|Caricamento…|Pos.|Giocate|Finale|Inizio impostato|Nessun inizio|pt|Inserisci squadra e numero partita|Ancora nulla registrato|Questa partita è già salvata. Sostituirla?|Impossibile salvare su questo dispositivo (memoria piena o bloccata). Esporta ora i tuoi dati.|JSON non valido|Era attesa una lista di partite|Importate|Incolla prima la tua chiave API di TBA qui sopra.|Chiave salvata su questo dispositivo.|TBA ha rifiutato la chiave.|Evento non trovato.|Impossibile raggiungere The Blue Alliance. Controlla la chiave e la connessione.|Nessun evento corrisponde|Risultati più vicini, scegline uno:|Nessuna classifica ancora pubblicata.|Classifica di|EPA di|Statbotics non ha ancora EPA per questo evento.|Salva una partita per vedere una mappa di calore.|campioni|partita/e|Statistiche squadre|Previsione evento|Previsione personalizzata|Registro modifiche",
-
-  "ja": "スカウト|ヒートマップ|Statbotics (EPA)|イベント順位|試合予測|ヒートマップ入出力|設定|フィールド|TBAキー|キーを保存|イベント名、コード、都市、州・地域(例: casd、San Diego、California)|イベントを検索|イベントを解除|イベント|すべてのタブでこのイベントのみ表示します。|イベント未選択。すべてのイベントのデータを表示中。|チーム(番号)|試合|チーム|リプレイ|赤|青|開始|オート|テレオプ|フェーズを消去|試合を保存|再生|一時停止|外観|システム|ライト|ダーク|言語|無料の読み取りキー: thebluealliance.com/account。このデバイスにのみ保存されます。|開始: ロボットの開始位置をタップ(ドラッグで調整)。オート/テレオプ: 押したままドラッグしてロボットを追い、止まっている場所では動かさず、見失ったら指を離します。青側が左、赤側が右です。|MystiqueCanDoThings 作。|フェーズ|すべて|半径|開始位置|速度|ヒート|再生しながら描画|チーム合計|なし|オフ|試合予測は近日公開です。|保存した試合|JSONを書き出し|JSONを読み込み|書き出すとこの欄に入力されます。JSONを貼り付けて「読み込み」を押すと統合されます。|削除|まだ何も保存されていません。|データなし|まず上でイベントを選択してください。|読み込み中…|順位|試合数|エンドゲーム|開始位置設定済み|開始位置なし|点|チーム番号と試合番号を入力してください|まだ何も記録されていません|この試合は既に保存されています。置き換えますか?|このデバイスに保存できませんでした(容量不足またはブロック)。今すぐデータを書き出してください。|無効なJSONです|試合のリストが必要です|読み込み完了|まず上にTBA APIキーを貼り付けてください。|キーをこのデバイスに保存しました。|TBAがキーを拒否しました。|イベントが見つかりません。|The Blue Allianceに接続できません。キーと接続を確認してください。|一致するイベントがありません|近い候補から選んでください:|順位はまだ公開されていません。|順位:|EPA:|このイベントのEPAはStatboticsにまだありません。|試合を保存するとヒートマップが表示されます。|サンプル|試合|チーム統計|イベント予測|カスタム予測|変更履歴",
-
-  "ar": "الكشف|الخريطة الحرارية|Statbotics (EPA)|ترتيب الحدث|متنبئ المباريات|استيراد/تصدير الخريطة الحرارية|الإعدادات|الملعب|مفتاح TBA|حفظ المفتاح|اسم الحدث أو رمزه أو المدينة أو الولاية/المنطقة (مثال: casd، San Diego، California)|ابحث عن الحدث|مسح الحدث|الحدث|تعرض جميع علامات التبويب هذا الحدث فقط.|لم يتم اختيار حدث. تُعرض بيانات جميع الأحداث.|الفريق (الرقم)|المباراة|الفريق|إعادة العرض|أحمر|أزرق|البداية|ذاتي|التحكم اليدوي|مسح المرحلة|حفظ المباراة|تشغيل|إيقاف مؤقت|المظهر|النظام|فاتح|داكن|اللغة|مفتاح قراءة مجاني: thebluealliance.com/account. يُحفظ على هذا الجهاز فقط.|البداية: المس المكان الذي يبدأ منه الروبوت (اسحب للتعديل). ذاتي/التحكم اليدوي: اضغط واسحب لتتبع الروبوت، وابقَ ثابتًا حيث يتوقف، وارفع إصبعك إذا فقدته. الجانب الأزرق على اليسار والأحمر على اليمين.|من إنشاء MystiqueCanDoThings.|المرحلة|الكل|نصف القطر|نقاط البداية|السرعة|الحرارة|تُبنى أثناء التشغيل|مجموع الفريق|لا شيء|إيقاف|متنبئ المباريات قادم قريبًا.|المباريات المحفوظة|تصدير JSON|استيراد JSON|يملأ التصدير هذا المربع. الصق JSON هنا واضغط استيراد للدمج.|حذف|لا شيء محفوظ بعد.|لا توجد بيانات|اختر حدثًا أعلاه أولًا.|جارٍ التحميل…|المركز|لُعبت|نهاية المباراة|تم تحديد البداية|بدون بداية|نقطة|أدخل رقم الفريق ورقم المباراة|لم يتم تسجيل شيء بعد|هذه المباراة محفوظة بالفعل. هل تريد استبدالها؟|تعذّر الحفظ على هذا الجهاز (التخزين ممتلئ أو محظور). صدّر بياناتك الآن.|JSON غير صالح|المطلوب قائمة مباريات|تم الاستيراد|الصق مفتاح TBA API أعلاه أولًا.|تم حفظ المفتاح على هذا الجهاز.|رفض TBA المفتاح.|لم يتم العثور على الحدث.|تعذّر الوصول إلى The Blue Alliance. تحقق من المفتاح والاتصال.|لا توجد أحداث مطابقة|أقرب النتائج، اختر واحدًا:|لم يتم نشر ترتيب بعد.|ترتيب|EPA لـ|لا يوجد EPA لهذا الحدث في Statbotics بعد.|احفظ مباراة لرؤية الخريطة الحرارية.|عينات|مباراة/مباريات|إحصائيات الفرق|متنبئ الحدث|متنبئ مخصص|سجل التغييرات",
-
-  "pt": "Scouting|Mapa de calor|Statbotics (EPA)|Classificação do evento|Previsor de partidas|Importar/Exportar mapa de calor|Configurações|Campo|Chave TBA|Salvar chave|Nome, código, cidade ou estado/região do evento (ex.: casd, San Diego, Califórnia)|Buscar evento|Limpar evento|Evento|Todas as abas mostram apenas este evento.|Nenhum evento selecionado. Dados de todos os eventos são exibidos.|Equipe (número)|Partida|Equipe|Replay|Vermelho|Azul|Início|Auto|Teleop|Limpar fase|Salvar partida|Reproduzir|Pausar|Aparência|Sistema|Claro|Escuro|Idioma|Chave de leitura gratuita: thebluealliance.com/account. Armazenada apenas neste dispositivo.|Início: toque onde o robô começa (arraste para ajustar). Auto/Teleop: pressione e arraste para seguir o robô, fique parado onde ele estiver, levante o dedo se o perder. O lado azul fica à esquerda e o vermelho à direita.|Criado por MystiqueCanDoThings.|Fase|Todas|Raio|Inícios|Velocidade|Calor|Constrói durante a reprodução|Total da equipe|Nenhum|Desligado|O previsor de partidas chega em breve.|Partidas salvas|Exportar JSON|Importar JSON|A exportação preenche esta caixa. Cole o JSON aqui e pressione Importar para mesclar.|Excluir|Nada salvo ainda.|Sem dados|Escolha um evento acima primeiro.|Carregando…|Pos.|Jogadas|Final|Início definido|Sem início|pts|Informe a equipe e o número da partida|Nada registrado ainda|Esta partida já está salva. Substituir?|Não foi possível salvar neste dispositivo (armazenamento cheio ou bloqueado). Exporte seus dados agora.|JSON inválido|Era esperada uma lista de partidas|Importadas|Cole primeiro sua chave da API do TBA acima.|Chave salva neste dispositivo.|O TBA recusou a chave.|Evento não encontrado.|Não foi possível acessar o The Blue Alliance. Verifique a chave e sua conexão.|Nenhum evento corresponde|Resultados mais próximos, escolha um:|Nenhuma classificação publicada ainda.|Classificação de|EPA de|O Statbotics ainda não tem EPA para este evento.|Salve uma partida para ver um mapa de calor.|amostras|partida(s)|Estatísticas das equipes|Previsor do evento|Previsor personalizado|Histórico de alterações",
-
-  "zh": "侦察|热力图|Statbotics(EPA)|赛事排名|比赛预测|热力图导入/导出|设置|场地|TBA 密钥|保存密钥|赛事名称、代码、城市或州/地区(例如 casd、San Diego、California)|查找赛事|清除赛事|赛事|所有标签页仅显示此赛事。|未选择赛事。显示所有赛事的数据。|队伍(编号)|比赛|队伍|回放|红|蓝|开始|自动|遥控|清除阶段|保存比赛|播放|暂停|外观|系统|浅色|深色|语言|免费只读密钥:thebluealliance.com/account。仅保存在此设备上。|开始:点击机器人的起始位置(可拖动调整)。自动/遥控:按住并拖动以跟随机器人,机器人停下时保持不动,跟丢时抬起手指。蓝方在左侧,红方在右侧。|由 MystiqueCanDoThings 创建。|阶段|全部|半径|起始点|速度|热度|随播放逐步生成|队伍总计|无|关闭|比赛预测即将推出。|已保存的比赛|导出 JSON|导入 JSON|导出内容会填入此框。将 JSON 粘贴到此处并点击导入以合并。|删除|尚未保存任何内容。|无数据|请先在上方选择赛事。|加载中…|排名|已赛|终局|已设置起点|未设置起点|分|请输入队伍和比赛编号|尚未记录任何内容|这场比赛已保存。要替换吗?|无法保存到此设备(存储已满或被阻止)。请立即导出数据。|JSON 无效|需要比赛列表|已导入|请先在上方粘贴 TBA API 密钥。|密钥已保存在此设备上。|TBA 拒绝了该密钥。|未找到赛事。|无法连接 The Blue Alliance。请检查密钥和网络连接。|没有匹配的赛事|最接近的结果,请选择一个:|尚未发布排名。|排名:|EPA:|Statbotics 暂时没有此赛事的 EPA。|保存一场比赛即可查看热力图。|采样点|场|队伍统计|赛事预测|自定义预测|更新日志"
-};
-
-// Language picker entries: [code, name shown in the dropdown (always in its own language)].
-const NAMES = [
-  ['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch'], ['it', 'Italiano'],
-  ['ja', '日本語'], ['ar', 'العربية'], ['pt', 'Português'], ['zh', '中文 (简体)']
-];
-
-let lang = 'en';
-
-// Translate: t('key') returns the current language's text (undefined if the key is missing).
-const t = k => {
-  const a = (D[lang] || D.en).split('|');
-  return a[K.indexOf(k)];
-};
-
+// ===== Language =====
+const K=["scout", "map", "stat", "rank", "pred", "data", "set", "field", "tbaKey", "saveKey", "evPh", "find", "clear", "event", "eventOn", "noEvent", "teamNum", "matchNo", "team", "replay", "red", "blue", "start", "auto", "tele", "clearPhase", "saveMatch", "play", "pause", "appearance", "system", "light", "dark", "language", "keyNote", "howTo", "createdBy", "phase", "all", "radius", "starts", "speed", "heat", "live", "teamTotal", "none", "off", "soon", "saved", "exportJ", "importJ", "ioPh", "del", "nothing", "noData", "pickEvent", "loading", "rankH", "played", "endgame", "startSet", "noStart", "pts", "enterNums", "nothingRec", "replaceQ", "storeFail", "badJson", "notList", "imported", "needKey", "keySaved", "rejected", "notFound", "noNet", "noMatch", "pickOne", "noRank", "rankFor", "epaFor", "noEpa", "heatEmpty", "samples", "matchesN"];
+const D={"en": "Scout|Heatmap|Statbotics (EPA)|Event rankings|Match Predictor|Heatmap Import/Export|Settings|Field|TBA key|Save key|Event name, code, city or state/region (e.g. casd, San Diego, California)|Find event|Clear event|Event|All tabs show this event only.|No event selected. Scout data and event data are shown for all events.|Team (Number)|Match|Team|Replay|Red|Blue|Start|Auto|Teleop|Clear phase|Save match|Play|Pause|Appearance|System|Light|Dark|Language|Free read key: thebluealliance.com/account. Stored on this device only.|Start: tap where the robot begins (drag to adjust). Auto/Teleop: press and drag to follow the robot, hold still where it sits, lift if you lose it. Blue side is left, red side is right.|Created by MystiqueCanDoThings.|Phase|All|Radius|Starts|Speed|Heat|Builds as it plays|Team total|None|Off|Match Predictor is coming soon.|Saved matches|Export JSON|Import JSON|Export fills this box. Paste JSON here and press Import to merge.|Delete|Nothing saved yet.|No data|Pick an event above first.|Loading…|Rank|Played|Endgame|Start set|No start|pts|Enter team and match number|Nothing recorded yet|This match is already saved. Replace it?|Could not save to this device (storage full or blocked). Export your data now.|Invalid JSON|Expected a list of matches|Imported|Paste your TBA API key above first.|Key saved on this device.|TBA rejected the key.|Event not found.|Could not reach The Blue Alliance. Check the key and your connection.|No events match|Closest matches, pick one:|No rankings posted yet.|Rankings for|EPA for|Statbotics has no EPA for this event yet.|Save a match to see a heatmap.|samples|match(es)", "es": "Explorar|Mapa de calor|Statbotics (EPA)|Clasificación del evento|Predictor de partidos|Importar/Exportar mapa de calor|Ajustes|Campo|Clave TBA|Guardar clave|Nombre, código, ciudad o estado/región del evento (p. ej. casd, San Diego, California)|Buscar evento|Borrar evento|Evento|Todas las pestañas muestran solo este evento.|Ningún evento seleccionado. Se muestran los datos de todos los eventos.|Equipo (número)|Partido|Equipo|Repetición|Rojo|Azul|Inicio|Auto|Teleop|Borrar fase|Guardar partido|Reproducir|Pausa|Apariencia|Sistema|Claro|Oscuro|Idioma|Clave de lectura gratuita: thebluealliance.com/account. Se guarda solo en este dispositivo.|Inicio: toca donde empieza el robot (arrastra para ajustar). Auto/Teleop: mantén pulsado y arrastra para seguir al robot, quédate quieto donde esté, levanta el dedo si lo pierdes. El lado azul está a la izquierda y el rojo a la derecha.|Creado por MystiqueCanDoThings.|Fase|Todo|Radio|Inicios|Velocidad|Calor|Se construye al reproducir|Total del equipo|Ninguno|Apagado|El predictor de partidos llegará pronto.|Partidos guardados|Exportar JSON|Importar JSON|Al exportar se rellena este cuadro. Pega JSON aquí y pulsa Importar para combinar.|Eliminar|Aún no hay nada guardado.|Sin datos|Primero elige un evento arriba.|Cargando…|Pos.|Jugados|Final|Inicio fijado|Sin inicio|pts|Introduce el equipo y el número de partido|Aún no se ha registrado nada|Este partido ya está guardado. ¿Reemplazarlo?|No se pudo guardar en este dispositivo (almacenamiento lleno o bloqueado). Exporta tus datos ahora.|JSON no válido|Se esperaba una lista de partidos|Importados|Pega primero tu clave de la API de TBA arriba.|Clave guardada en este dispositivo.|TBA rechazó la clave.|Evento no encontrado.|No se pudo conectar con The Blue Alliance. Revisa la clave y tu conexión.|Ningún evento coincide|Coincidencias más cercanas, elige una:|Aún no hay clasificación publicada.|Clasificación de|EPA de|Statbotics aún no tiene EPA para este evento.|Guarda un partido para ver un mapa de calor.|muestras|partido(s)", "fr": "Scouting|Carte thermique|Statbotics (EPA)|Classement de l'événement|Prédicteur de matchs|Import/Export carte thermique|Réglages|Terrain|Clé TBA|Enregistrer la clé|Nom, code, ville ou état/région de l'événement (ex. casd, San Diego, Californie)|Trouver l'événement|Effacer l'événement|Événement|Tous les onglets affichent uniquement cet événement.|Aucun événement sélectionné. Les données de tous les événements sont affichées.|Équipe (numéro)|Match|Équipe|Replay|Rouge|Bleu|Départ|Auto|Téléop|Effacer la phase|Enregistrer le match|Lecture|Pause|Apparence|Système|Clair|Sombre|Langue|Clé de lecture gratuite : thebluealliance.com/account. Stockée uniquement sur cet appareil.|Départ : touchez l'endroit où le robot commence (glissez pour ajuster). Auto/Téléop : appuyez et glissez pour suivre le robot, restez immobile là où il s'arrête, levez le doigt si vous le perdez. Le côté bleu est à gauche, le rouge à droite.|Créé par MystiqueCanDoThings.|Phase|Tout|Rayon|Départs|Vitesse|Chaleur|Se construit pendant la lecture|Total de l'équipe|Aucun|Désactivé|Le prédicteur de matchs arrive bientôt.|Matchs enregistrés|Exporter en JSON|Importer du JSON|L'export remplit cette zone. Collez du JSON ici et appuyez sur Importer pour fusionner.|Supprimer|Rien d'enregistré pour l'instant.|Aucune donnée|Choisissez d'abord un événement ci-dessus.|Chargement…|Rang|Joués|Fin de match|Départ défini|Pas de départ|pts|Saisissez l'équipe et le numéro de match|Rien d'enregistré pour l'instant|Ce match est déjà enregistré. Le remplacer ?|Impossible d'enregistrer sur cet appareil (stockage plein ou bloqué). Exportez vos données maintenant.|JSON invalide|Une liste de matchs était attendue|Importés|Collez d'abord votre clé API TBA ci-dessus.|Clé enregistrée sur cet appareil.|TBA a refusé la clé.|Événement introuvable.|Impossible de joindre The Blue Alliance. Vérifiez la clé et votre connexion.|Aucun événement ne correspond|Résultats les plus proches, choisissez-en un :|Aucun classement publié pour l'instant.|Classement de|EPA de|Statbotics n'a pas encore d'EPA pour cet événement.|Enregistrez un match pour voir une carte thermique.|échantillons|match(s)", "de": "Scouting|Heatmap|Statbotics (EPA)|Event-Rangliste|Spielvorhersage|Heatmap Import/Export|Einstellungen|Spielfeld|TBA-Schlüssel|Schlüssel speichern|Eventname, Code, Stadt oder Bundesstaat/Region (z. B. casd, San Diego, Kalifornien)|Event suchen|Event entfernen|Event|Alle Tabs zeigen nur dieses Event.|Kein Event ausgewählt. Daten aller Events werden angezeigt.|Team (Nummer)|Match|Team|Wiedergabe|Rot|Blau|Start|Auto|Teleop|Phase löschen|Match speichern|Abspielen|Pause|Darstellung|System|Hell|Dunkel|Sprache|Kostenloser Lese-Schlüssel: thebluealliance.com/account. Wird nur auf diesem Gerät gespeichert.|Start: Tippe auf die Startposition des Roboters (zum Anpassen ziehen). Auto/Teleop: Drücken und ziehen, um dem Roboter zu folgen, an Ort und Stelle halten, wo er steht, loslassen, wenn du ihn verlierst. Die blaue Seite ist links, die rote rechts.|Erstellt von MystiqueCanDoThings.|Phase|Alle|Radius|Starts|Tempo|Hitze|Baut sich beim Abspielen auf|Teamsumme|Keine|Aus|Die Spielvorhersage kommt bald.|Gespeicherte Matches|JSON exportieren|JSON importieren|Der Export füllt dieses Feld. JSON hier einfügen und auf Importieren drücken, um es zusammenzuführen.|Löschen|Noch nichts gespeichert.|Keine Daten|Wähle oben zuerst ein Event.|Lädt…|Rang|Gespielt|Endspiel|Start gesetzt|Kein Start|Pkt.|Team- und Matchnummer eingeben|Noch nichts aufgezeichnet|Dieses Match ist bereits gespeichert. Ersetzen?|Speichern auf diesem Gerät nicht möglich (Speicher voll oder blockiert). Exportiere jetzt deine Daten.|Ungültiges JSON|Eine Liste von Matches wurde erwartet|Importiert|Füge oben zuerst deinen TBA-API-Schlüssel ein.|Schlüssel auf diesem Gerät gespeichert.|TBA hat den Schlüssel abgelehnt.|Event nicht gefunden.|The Blue Alliance nicht erreichbar. Prüfe den Schlüssel und deine Verbindung.|Keine passenden Events|Beste Treffer, wähle einen:|Noch keine Rangliste veröffentlicht.|Rangliste für|EPA für|Statbotics hat für dieses Event noch keine EPA.|Speichere ein Match, um eine Heatmap zu sehen.|Messpunkte|Match(es)", "it": "Scouting|Mappa di calore|Statbotics (EPA)|Classifica evento|Previsione partite|Importa/Esporta mappa di calore|Impostazioni|Campo|Chiave TBA|Salva chiave|Nome, codice, città o stato/regione dell'evento (es. casd, San Diego, California)|Trova evento|Rimuovi evento|Evento|Tutte le schede mostrano solo questo evento.|Nessun evento selezionato. Vengono mostrati i dati di tutti gli eventi.|Squadra (numero)|Partita|Squadra|Replay|Rosso|Blu|Inizio|Auto|Teleop|Cancella fase|Salva partita|Riproduci|Pausa|Aspetto|Sistema|Chiaro|Scuro|Lingua|Chiave di lettura gratuita: thebluealliance.com/account. Salvata solo su questo dispositivo.|Inizio: tocca dove parte il robot (trascina per regolare). Auto/Teleop: premi e trascina per seguire il robot, resta fermo dove si ferma, solleva il dito se lo perdi. Il lato blu è a sinistra, quello rosso a destra.|Creato da MystiqueCanDoThings.|Fase|Tutto|Raggio|Inizi|Velocità|Calore|Si costruisce durante la riproduzione|Totale squadra|Nessuno|Off|Il previsore di partite arriva presto.|Partite salvate|Esporta JSON|Importa JSON|L'esportazione riempie questa casella. Incolla qui il JSON e premi Importa per unire.|Elimina|Ancora nulla di salvato.|Nessun dato|Scegli prima un evento qui sopra.|Caricamento…|Pos.|Giocate|Finale|Inizio impostato|Nessun inizio|pt|Inserisci squadra e numero partita|Ancora nulla registrato|Questa partita è già salvata. Sostituirla?|Impossibile salvare su questo dispositivo (memoria piena o bloccata). Esporta ora i tuoi dati.|JSON non valido|Era attesa una lista di partite|Importate|Incolla prima la tua chiave API di TBA qui sopra.|Chiave salvata su questo dispositivo.|TBA ha rifiutato la chiave.|Evento non trovato.|Impossibile raggiungere The Blue Alliance. Controlla la chiave e la connessione.|Nessun evento corrisponde|Risultati più vicini, scegline uno:|Nessuna classifica ancora pubblicata.|Classifica di|EPA di|Statbotics non ha ancora EPA per questo evento.|Salva una partita per vedere una mappa di calore.|campioni|partita/e", "ja": "スカウト|ヒートマップ|Statbotics (EPA)|イベント順位|試合予測|ヒートマップ入出力|設定|フィールド|TBAキー|キーを保存|イベント名、コード、都市、州・地域(例: casd、San Diego、California)|イベントを検索|イベントを解除|イベント|すべてのタブでこのイベントのみ表示します。|イベント未選択。すべてのイベントのデータを表示中。|チーム(番号)|試合|チーム|リプレイ|赤|青|開始|オート|テレオプ|フェーズを消去|試合を保存|再生|一時停止|外観|システム|ライト|ダーク|言語|無料の読み取りキー: thebluealliance.com/account。このデバイスにのみ保存されます。|開始: ロボットの開始位置をタップ(ドラッグで調整)。オート/テレオプ: 押したままドラッグしてロボットを追い、止まっている場所では動かさず、見失ったら指を離します。青側が左、赤側が右です。|MystiqueCanDoThings 作。|フェーズ|すべて|半径|開始位置|速度|ヒート|再生しながら描画|チーム合計|なし|オフ|試合予測は近日公開です。|保存した試合|JSONを書き出し|JSONを読み込み|書き出すとこの欄に入力されます。JSONを貼り付けて「読み込み」を押すと統合されます。|削除|まだ何も保存されていません。|データなし|まず上でイベントを選択してください。|読み込み中…|順位|試合数|エンドゲーム|開始位置設定済み|開始位置なし|点|チーム番号と試合番号を入力してください|まだ何も記録されていません|この試合は既に保存されています。置き換えますか?|このデバイスに保存できませんでした(容量不足またはブロック)。今すぐデータを書き出してください。|無効なJSONです|試合のリストが必要です|読み込み完了|まず上にTBA APIキーを貼り付けてください。|キーをこのデバイスに保存しました。|TBAがキーを拒否しました。|イベントが見つかりません。|The Blue Allianceに接続できません。キーと接続を確認してください。|一致するイベントがありません|近い候補から選んでください:|順位はまだ公開されていません。|順位:|EPA:|このイベントのEPAはStatboticsにまだありません。|試合を保存するとヒートマップが表示されます。|サンプル|試合", "ar": "الكشف|الخريطة الحرارية|Statbotics (EPA)|ترتيب الحدث|متنبئ المباريات|استيراد/تصدير الخريطة الحرارية|الإعدادات|الملعب|مفتاح TBA|حفظ المفتاح|اسم الحدث أو رمزه أو المدينة أو الولاية/المنطقة (مثال: casd، San Diego، California)|ابحث عن الحدث|مسح الحدث|الحدث|تعرض جميع علامات التبويب هذا الحدث فقط.|لم يتم اختيار حدث. تُعرض بيانات جميع الأحداث.|الفريق (الرقم)|المباراة|الفريق|إعادة العرض|أحمر|أزرق|البداية|ذاتي|التحكم اليدوي|مسح المرحلة|حفظ المباراة|تشغيل|إيقاف مؤقت|المظهر|النظام|فاتح|داكن|اللغة|مفتاح قراءة مجاني: thebluealliance.com/account. يُحفظ على هذا الجهاز فقط.|البداية: المس المكان الذي يبدأ منه الروبوت (اسحب للتعديل). ذاتي/التحكم اليدوي: اضغط واسحب لتتبع الروبوت، وابقَ ثابتًا حيث يتوقف، وارفع إصبعك إذا فقدته. الجانب الأزرق على اليسار والأحمر على اليمين.|من إنشاء MystiqueCanDoThings.|المرحلة|الكل|نصف القطر|نقاط البداية|السرعة|الحرارة|تُبنى أثناء التشغيل|مجموع الفريق|لا شيء|إيقاف|متنبئ المباريات قادم قريبًا.|المباريات المحفوظة|تصدير JSON|استيراد JSON|يملأ التصدير هذا المربع. الصق JSON هنا واضغط استيراد للدمج.|حذف|لا شيء محفوظ بعد.|لا توجد بيانات|اختر حدثًا أعلاه أولًا.|جارٍ التحميل…|المركز|لُعبت|نهاية المباراة|تم تحديد البداية|بدون بداية|نقطة|أدخل رقم الفريق ورقم المباراة|لم يتم تسجيل شيء بعد|هذه المباراة محفوظة بالفعل. هل تريد استبدالها؟|تعذّر الحفظ على هذا الجهاز (التخزين ممتلئ أو محظور). صدّر بياناتك الآن.|JSON غير صالح|المطلوب قائمة مباريات|تم الاستيراد|الصق مفتاح TBA API أعلاه أولًا.|تم حفظ المفتاح على هذا الجهاز.|رفض TBA المفتاح.|لم يتم العثور على الحدث.|تعذّر الوصول إلى The Blue Alliance. تحقق من المفتاح والاتصال.|لا توجد أحداث مطابقة|أقرب النتائج، اختر واحدًا:|لم يتم نشر ترتيب بعد.|ترتيب|EPA لـ|لا يوجد EPA لهذا الحدث في Statbotics بعد.|احفظ مباراة لرؤية الخريطة الحرارية.|عينات|مباراة/مباريات", "pt": "Scouting|Mapa de calor|Statbotics (EPA)|Classificação do evento|Previsor de partidas|Importar/Exportar mapa de calor|Configurações|Campo|Chave TBA|Salvar chave|Nome, código, cidade ou estado/região do evento (ex.: casd, San Diego, Califórnia)|Buscar evento|Limpar evento|Evento|Todas as abas mostram apenas este evento.|Nenhum evento selecionado. Dados de todos os eventos são exibidos.|Equipe (número)|Partida|Equipe|Replay|Vermelho|Azul|Início|Auto|Teleop|Limpar fase|Salvar partida|Reproduzir|Pausar|Aparência|Sistema|Claro|Escuro|Idioma|Chave de leitura gratuita: thebluealliance.com/account. Armazenada apenas neste dispositivo.|Início: toque onde o robô começa (arraste para ajustar). Auto/Teleop: pressione e arraste para seguir o robô, fique parado onde ele estiver, levante o dedo se o perder. O lado azul fica à esquerda e o vermelho à direita.|Criado por MystiqueCanDoThings.|Fase|Todas|Raio|Inícios|Velocidade|Calor|Constrói durante a reprodução|Total da equipe|Nenhum|Desligado|O previsor de partidas chega em breve.|Partidas salvas|Exportar JSON|Importar JSON|A exportação preenche esta caixa. Cole o JSON aqui e pressione Importar para mesclar.|Excluir|Nada salvo ainda.|Sem dados|Escolha um evento acima primeiro.|Carregando…|Pos.|Jogadas|Final|Início definido|Sem início|pts|Informe a equipe e o número da partida|Nada registrado ainda|Esta partida já está salva. Substituir?|Não foi possível salvar neste dispositivo (armazenamento cheio ou bloqueado). Exporte seus dados agora.|JSON inválido|Era esperada uma lista de partidas|Importadas|Cole primeiro sua chave da API do TBA acima.|Chave salva neste dispositivo.|O TBA recusou a chave.|Evento não encontrado.|Não foi possível acessar o The Blue Alliance. Verifique a chave e sua conexão.|Nenhum evento corresponde|Resultados mais próximos, escolha um:|Nenhuma classificação publicada ainda.|Classificação de|EPA de|O Statbotics ainda não tem EPA para este evento.|Salve uma partida para ver um mapa de calor.|amostras|partida(s)", "zh": "侦察|热力图|Statbotics(EPA)|赛事排名|比赛预测|热力图导入/导出|设置|场地|TBA 密钥|保存密钥|赛事名称、代码、城市或州/地区(例如 casd、San Diego、California)|查找赛事|清除赛事|赛事|所有标签页仅显示此赛事。|未选择赛事。显示所有赛事的数据。|队伍(编号)|比赛|队伍|回放|红|蓝|开始|自动|遥控|清除阶段|保存比赛|播放|暂停|外观|系统|浅色|深色|语言|免费只读密钥:thebluealliance.com/account。仅保存在此设备上。|开始:点击机器人的起始位置(可拖动调整)。自动/遥控:按住并拖动以跟随机器人,机器人停下时保持不动,跟丢时抬起手指。蓝方在左侧,红方在右侧。|由 MystiqueCanDoThings 创建。|阶段|全部|半径|起始点|速度|热度|随播放逐步生成|队伍总计|无|关闭|比赛预测即将推出。|已保存的比赛|导出 JSON|导入 JSON|导出内容会填入此框。将 JSON 粘贴到此处并点击导入以合并。|删除|尚未保存任何内容。|无数据|请先在上方选择赛事。|加载中…|排名|已赛|终局|已设置起点|未设置起点|分|请输入队伍和比赛编号|尚未记录任何内容|这场比赛已保存。要替换吗?|无法保存到此设备(存储已满或被阻止)。请立即导出数据。|JSON 无效|需要比赛列表|已导入|请先在上方粘贴 TBA API 密钥。|密钥已保存在此设备上。|TBA 拒绝了该密钥。|未找到赛事。|无法连接 The Blue Alliance。请检查密钥和网络连接。|没有匹配的赛事|最接近的结果,请选择一个:|尚未发布排名。|排名:|EPA:|Statbotics 暂时没有此赛事的 EPA。|保存一场比赛即可查看热力图。|采样点|场"};
+const NAMES=[['en','English'],['es','Español'],['fr','Français'],['de','Deutsch'],['it','Italiano'],['ja','日本語'],['ar','العربية'],['pt','Português'],['zh','中文 (简体)']];
+let lang='en';
+const t=k=>{const a=(D[lang]||D.en).split('|');return a[K.indexOf(k)]};
 // Replaces the first non-empty text node so labels keep their inputs.
-function setTxt(el, txt) {
-  const n = [...el.childNodes].find(c => c.nodeType === 3 && c.nodeValue.trim());
-  if (n) n.nodeValue = txt + (el.children.length ? ' ' : '');
-  else el.textContent = txt;
+function setTxt(el,txt){const n=[...el.childNodes].find(c=>c.nodeType===3&&c.nodeValue.trim());if(n)n.nodeValue=txt+(el.children.length?' ':'');else el.textContent=txt}
+const BTN={tScout:'scout',tMap:'map',tRank:'rank',tData:'data',tSet:'set',exp:'exportJ',imp:'importJ',kNote:'keyNote',hHow:'howTo',hBy:'createdBy',keySave:'saveKey',evGo:'find',evClear:'clear',aRed:'red',aBlue:'blue',pStart:'start',pAuto:'auto',pTele:'tele',clear:'clearPhase',save:'saveMatch',thSystem:'system',thLight:'light',thDark:'dark',lAppear:'appearance',lLang:'language'};
+const LBL={fieldSel:'field',tbaKey:'tbaKey',team:'teamNum',match:'matchNo',fTeam:'team',rMatch:'replay',fPhase:'phase',rad:'radius',showStart:'starts',rSpd:'speed',rHeat:'heat'};
+function setLang(l){
+  lang=D[l]?l:'en';try{localStorage.setItem('frcLang',lang)}catch(e){}
+  root.lang=lang;root.dir=lang==='ar'?'rtl':'ltr';$('langSel').value=lang;
+  Object.entries(BTN).forEach(([id,k])=>setTxt($(id),t(k)));
+  Object.entries(LBL).forEach(([id,k])=>setTxt($(id).parentNode,t(k)));
+  $('evQ').placeholder=t('evPh');$('io').placeholder=t('ioPh');[...$('fPhase').options].forEach(o=>o.text=t(o.value));[...$('rHeat').options].forEach(o=>o.text=t({live:'live',team:'teamTotal',none:'none'}[o.value]));$('rPlay').textContent=t(rp.playing?'pause':'play');evLabel();show(tab);
 }
+$('langSel').innerHTML=NAMES.map(n=>'<option value="'+n[0]+'">'+n[1]+'</option>').join('');
+$('langSel').onchange=()=>setLang($('langSel').value);
+let savedLang=null;try{savedLang=localStorage.getItem('frcLang')}catch(e){}
+setLang(savedLang||(navigator.language||'en').slice(0,2));
 
-// Elements whose OWN text is translated: element id -> text key.
-const BTN = {
-  tScout: 'scout', tMap: 'map', tStat: 'stat', tRank: 'rank', tData: 'data', tSet: 'set',
-  tTS: 'ts', tPred: 'predEv', tCust: 'predCu', tLog: 'log',
-  exp: 'exportJ', imp: 'importJ', kNote: 'keyNote', hHow: 'howTo', hBy: 'createdBy',
-  keySave: 'saveKey', evGo: 'find', evClear: 'clear',
-  aRed: 'red', aBlue: 'blue', pStart: 'start', pAuto: 'auto', pTele: 'tele',
-  clear: 'clearPhase', save: 'saveMatch',
-  thSystem: 'system', thLight: 'light', thDark: 'dark', lAppear: 'appearance', lLang: 'language',
-  logTitle: 'log'
-};
-
-// Form controls whose wrapping <label> text is translated: control id -> text key.
-const LBL = {
-  fieldSel: 'field', tbaKey: 'tbaKey', team: 'teamNum', match: 'matchNo', fTeam: 'team',
-  rMatch: 'replay', fPhase: 'phase', rad: 'radius', showStart: 'starts', rSpd: 'speed', rHeat: 'heat'
-};
-
-// Switches language: saves it, sets page direction (Arabic is right-to-left), retranslates the page, redraws the tab.
-function setLang(l) {
-  lang = D[l] ? l : 'en';
-  try { localStorage.setItem('frcLang', lang); } catch (e) {}
-
-  root.lang = lang;
-  root.dir  = lang === 'ar' ? 'rtl' : 'ltr';
-  $('langSel').value = lang;
-
-  Object.entries(BTN).forEach(([id, k]) => setTxt($(id), t(k)));
-  Object.entries(LBL).forEach(([id, k]) => setTxt($(id).parentNode, t(k)));
-
-  // Placeholders and dropdown options.
-  $('evQ').placeholder = t('evPh');
-  $('io').placeholder  = t('ioPh');
-  [...$('fPhase').options].forEach(o => o.text = t(o.value));
-  [...$('rHeat').options].forEach(o => o.text = t({ live: 'live', team: 'teamTotal', none: 'none' }[o.value]));
-  $('rPlay').textContent = t(rp.playing ? 'pause' : 'play');
-  evLabel();
-  show(tab);
-}
-
-
-// The best line of code of all time (hehe 2543)  
-// Build the language dropdown.
-$('langSel').innerHTML = NAMES.map(n => '<option value="' + n[0] + '">' + n[1] + '</option>').join('');
-$('langSel').onchange = () => setLang($('langSel').value);
-
-
-/* =========================================================================
-   13. START-UP
-   ========================================================================= */
-
-// Use the saved language, else the browser's language (first two letters), else English.
-let savedLang = null;
-try { savedLang = localStorage.getItem('frcLang'); } catch (e) {}
-setLang(savedLang || (navigator.language || 'en').slice(0, 2));
-
-evLabel();
-drawTrace();
+evLabel();drawTrace();
 </script>
-
 </body>
 </html>
