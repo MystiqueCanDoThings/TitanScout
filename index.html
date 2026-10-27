@@ -1134,7 +1134,7 @@ const CHANGELOG = [
     date: '2026-10-26',
     notes: [
       'Match predictors now also project Auto (fuel), Teleop and Endgame for each alliance, with a win chance for each phase. Played matches show the real result beside it.',
-      'New Robot Types tab: tag teams as Turret, Dumper, Telescope or Climber and add notes. Works for any team, including B teams. Tags can be shared through data/robot_types.json.',
+      'New Robot Types tab: tag teams as Turret, Dumper, Only Bump or Climb (L1) and add notes. Works for any team, including B teams. Tags can be shared through data/robot_types.json.',
       'Team logos and names now appear next to team numbers in Event rankings and Team Stats.',
       'Removed the Statbotics (EPA) tab; Team Stats replaces it.',
       'Credits is now its own tab (it used to share an id with the Changelog button).'
@@ -1671,7 +1671,7 @@ function renderRank() {
    ========================================================================= */
 
 const TI   = {};   // team number -> { name }
-const TAGS = ['Turret', 'Dumper', 'Telescope', 'Climber'];
+const TAGS = ['Turret', 'Dumper', 'Bump Only', 'Climb (L1)'];
 
 let AV      = {};     // team number -> logo as a data: URL ('' = none found)
 let ETEAMS  = [];     // team numbers at the selected event
