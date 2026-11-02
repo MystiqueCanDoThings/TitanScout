@@ -69,8 +69,10 @@ scripts/fetch_statbotics.py Python script the Action runs
 - Have a legitimate website instead of relying on GitHub Pages
 
 ### Bugs that are known or things in need of change
-- Issues to pull data from Statbotics
+
+### Things Removed
+- Removed Statbotics Feature due to it not working at all
 
 ## Credits
 
-Created by MystiqueCanDoThings. Event data from [The Blue Alliance](https://www.thebluealliance.com) and [Statbotics](https://www.statbotics.io).
+Created by MystiqueCanDoThings. Event data from [The Blue Alliance](https://www.thebluealliance.com)
