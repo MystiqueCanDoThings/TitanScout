@@ -19,7 +19,7 @@ It runs in any browser on a phone, tablet, or computer. There is no account or i
 - **Team Stats:** OPR plus estimated per-team values for fuel counts, tower points, fouls, RP, and more. Sort and filter the table, choose your columns, and build bar or bubble charts from any stats.
 - **Event Predictor:** Every match at the event with a projected score, a win-chance meter, and a confidence level, shown next to the real winner once the match is played.
 - **Custom Predictor:** Enter any six teams and the app pulls their results for a chosen season from TBA to project a score and a winner. It does not need an event selected.
-- **Statbotics (EPA):** EPA for the event's teams, read from data saved in this repo by a scheduled GitHub Action, with the live Statbotics API as a fallback.
+- **Robot Types:** Define the specific archetypes of different robots (For Rebuilt: Turret, Dumper, Climb (L1), Bump Only, etc)
 - **Heatmap Import/Export:** Move scouted match data between devices as JSON.
 - **Settings:** Light, dark, or system theme with an animated switch, and a language picker: English, Spanish, French, German, Italian, Japanese, Arabic, Portuguese, and Mandarin Chinese.
 
@@ -53,7 +53,7 @@ The Action saves one JSON file per event in `data/statbotics/`, and the app read
 ```
 index.html                  the whole app
 favicon.png
-images/                     field images (field22.png to field26.png)
+images/                     field images (field22.png to field26.png along with placeholder team icons)
 data/events.txt             events for the Statbotics Action
 data/statbotics/            JSON saved by the Action
 scripts/fetch_statbotics.py Python script the Action runs
@@ -65,7 +65,6 @@ scripts/fetch_statbotics.py Python script the Action runs
 ### Future Updates:      
 - Strategy Whiteboard
 - Automated Heatmap tracking
-- Define robot types in event tab. (Turret, Dumper, Telescope, With climber)
 - Ability to upload data to a database to use later, so data no longer relies on the device that logged it
 - Have a legitimate website instead of relying on GitHub Pages
 
