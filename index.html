@@ -431,6 +431,53 @@
 
 
     /* =====================================================================
+       LEAGUE PICKER (full-screen start screen)
+       ===================================================================== */
+    #leagueGate {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    /* .hide alone loses to the display:flex above, so spell it out. */
+    #leagueGate.hide {
+      display: none;
+    }
+
+    .gate-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      justify-content: center;
+    }
+
+    .gate {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: 230px;
+      padding: 18px;
+      border-radius: 14px;
+      font-weight: 600;
+    }
+
+    .gate img {
+      width: 140px;
+      height: 140px;
+      object-fit: contain;
+    }
+
+
+    /* =====================================================================
        CHANGELOG TAB
        ===================================================================== */
     .cl {
@@ -451,9 +498,29 @@
 
 
 <body>
+
+<!-- ===================================================================
+     LEAGUE PICKER
+     Shown until a league has been chosen. The choice is remembered;
+     Settings > Switch league brings this screen back.
+     =================================================================== -->
+<div id="leagueGate" class="hide">
+  <h1>Choose your league</h1>
+  <div class="gate-row">
+    <button id="pickFRC" class="gate">
+      <img src="images/league-picker/FRC-icon.png" alt="FRC">
+      <span>FIRST Robotics Competition</span>
+    </button>
+    <button id="pickFTC" class="gate">
+      <img src="images/league-picker/FTC-icon.png" alt="FTC">
+      <span>FIRST Tech Challenge</span>
+    </button>
+  </div>
+</div>
+
 <main>
 
-  <h1>TitanScout v2.1</h1>
+  <h1 id="appTitle">TitanScout v2.2.1</h1>
 
 
   <!-- ===================================================================
@@ -461,7 +528,7 @@
        The TBA key and event search live here so every tab works on one event.
        =================================================================== -->
   <section class="card" id="evBar">
-    <div class="row">
+    <div class="row" id="keyRow">
       <label>TBA key <input id="tbaKey" type="password" placeholder="paste key" style="width:200px"></label>
       <button id="keySave">Save key</button>
       <span class="mut" id="kNote">Free read key: thebluealliance.com/account. Stored on this device only.</span>
@@ -753,6 +820,12 @@
       </div>
 
       <div class="row">
+        <b id="lLeague">League</b>
+        <span id="leagueNow"></span>
+        <button id="leagueSwitch">Switch league</button>
+      </div>
+
+      <div class="row">
         <b id="lLang">Language</b>
         <select id="langSel"></select>
       </div>
@@ -786,6 +859,7 @@
    TITANSCOUT
    -------------------------------------------------------------------------
    Sections of this file, in order:
+     0.  League (FRC or FTC)
      1.  Constants, helpers and saved state
      2.  Field images
      3.  Scouting canvas (record a match)
@@ -814,9 +888,59 @@
    1. CONSTANTS, HELPERS AND SAVED STATE
    ========================================================================= */
 
+/* =========================================================================
+   0. LEAGUE (FRC or FTC)
+   Everything league-specific lives in LG so the rest of the app stays the same:
+     id / name  which league
+     p          prefix for saved settings, so FRC and FTC never mix their data
+                (FRC keeps its old frc... names, so nothing already saved is lost)
+     size       robots per alliance (FRC 3, FTC 2)
+     fields     [field image, season] pairs (FTC images are optional: a plain
+                stand-in field is drawn when an image is missing)
+   ========================================================================= */
+
+let storedLeague = null;
+try { storedLeague = localStorage.getItem('titanLeague'); } catch (e) {}
+
+// ?league=FTC in the address also works (handy if the browser blocks saving).
+const urlLeague    = new URLSearchParams(location.search).get('league'),
+      leagueChoice = ['FRC', 'FTC'].includes(urlLeague) ? urlLeague : ['FRC', 'FTC'].includes(storedLeague) ? storedLeague : null;
+
+const LEAGUES = {
+  FRC: {
+    id: 'FRC', name: 'FRC', p: 'frc', size: 3,
+    fields: [
+      ['images/frc/field26.png', '2026'],
+      ['images/frc/field25.png', '2025'],
+      ['images/frc/field24.png', '2024'],
+      ['images/frc/field23.png', '2023'],
+      ['images/frc/field22.png', '2022']
+    ]
+  },
+  FTC: {
+    // FTC seasons are named by their starting year (2025 = 2025-26).
+    id: 'FTC', name: 'FTC', p: 'ftc', size: 2,
+    fields: [
+      ['images/ftc/field25.png', '2025'],
+      ['images/ftc/field24.png', '2024'],
+      ['images/ftc/field23.png', '2023'],
+      ['images/ftc/field22.png', '2022']
+    ]
+  }
+};
+
+// No choice yet: run as FRC underneath while the picker screen covers the app.
+const LG = LEAGUES[leagueChoice || 'FRC'];
+
+// FRC field images moved from images/ to images/frc/. This turns an old path (images/field26.png)
+// into the new one (images/frc/field26.png) so saved matches, the remembered field and imported
+// files written before the move keep working. Paths that are already new are left alone.
+const fixPath = p => typeof p === 'string' ? p.replace(/^images\/(field\d+\.png)$/, 'images/frc/$1') : p;
+
+
 const W   = 1000;                // canvas width in px (height H is derived from the field image)
-const KEY = 'frcHeatmapMatches'; // localStorage key for saved matches
-let   H   = 525;                 // canvas height; recalculated when the field image loads
+const KEY = LG.p + 'HeatmapMatches'; // localStorage key for saved matches (one per league)
+let   H   = LG.id === 'FTC' ? W : 525;   // canvas height (FTC fields are square); recalculated when the field image loads
 
 // Short DOM lookup by id.
 const $ = id => document.getElementById(id);
@@ -846,6 +970,13 @@ let t0    = {};      // per-phase start time (ms) used to compute each point's "
 try { matches = JSON.parse(localStorage.getItem(KEY) || '[]'); }
 catch (e) { matches = []; }
 
+// One-time upgrade: matches saved before the image folders moved get their field path rewritten (and re-saved).
+try {
+  let moved = false;
+  matches.forEach(m => { const f = fixPath(m.field); if (f !== m.field) { m.field = f; moved = true; } });
+  if (moved) localStorage.setItem(KEY, JSON.stringify(matches));
+} catch (e) {}
+
 // Saves matches to localStorage.
 // Returns false (and warns) when the browser refuses the write, so scouts never lose data silently.
 function persist() {
@@ -863,30 +994,24 @@ function persist() {
    2. FIELD IMAGES
    ========================================================================= */
 
-// [image path, season label]. The first entry is the default / newest season.
-const FIELDS = [
-  ['images/field26.png', '2026'],
-  ['images/field25.png', '2025'],
-  ['images/field24.png', '2024'],
-  ['images/field23.png', '2023'],
-  ['images/field22.png', '2022']
-];
+// [image path, season label]. The first entry is the default / newest season. (Per league: see LG above.)
+const FIELDS = LG.fields;
 
 // The alliance whose side of the field is drawn on the left of the canvas.
 const LEFT = 'blue';
 
-let fieldSrc = 'images/field26.png'; // currently selected field image
+let fieldSrc = FIELDS[0][0];         // currently selected field image
 let ev       = null;                 // currently selected TBA event {key, name, year} or null
 
 // Restore the last field and event from localStorage (ignore unknown field paths).
 try {
-  const sv = localStorage.getItem('frcField');
+  const sv = fixPath(localStorage.getItem(LG.p + 'Field'));
   if (sv && FIELDS.some(f => f[0] === sv)) fieldSrc = sv;
-  ev = JSON.parse(localStorage.getItem('frcEv') || 'null');
+  ev = JSON.parse(localStorage.getItem(LG.p + 'Ev') || 'null');
 } catch (e) {}
 
 // A match's field path. Old matches saved before field choice existed (or as 'field.png') count as the newest field.
-const fk = m => !m.field || m.field === 'field.png' ? FIELDS[0][0] : m.field;
+const fk = m => !m.field || m.field === 'field.png' ? FIELDS[0][0] : fixPath(m.field);
 
 // A match is visible when it belongs to the chosen field/season AND, if an event is selected, that event.
 const inSeason = m => fk(m) === fieldSrc && (!ev || m.event === ev.key);
@@ -907,6 +1032,19 @@ fieldImg.onload = () => {
   if (tab === 'Map') renderHeat();
 };
 
+// If the image cannot be loaded, keep the right shape (FTC square, FRC wide) and draw the stand-in field.
+fieldImg.onerror = () => {
+  H = LG.id === 'FTC' ? W : 525;
+  $('scout').height = H;
+  $('heat').height  = H;
+  drawTrace();
+  if (tab === 'Map') renderHeat();
+};
+
+// Start with the right canvas shape for this league.
+$('scout').height = H;
+$('heat').height  = H;
+
 // Fill the field dropdown and select the current field.
 $('fieldSel').innerHTML = FIELDS.map(f => '<option value="' + f[0] + '">' + f[1] + '</option>').join('');
 $('fieldSel').value = fieldSrc;
@@ -915,7 +1053,7 @@ $('fieldSel').value = fieldSrc;
 function setField(src) {
   fieldSrc = src;
   $('fieldSel').value = src;
-  try { localStorage.setItem('frcField', src); } catch (e) {}
+  try { localStorage.setItem(LG.p + 'Field', src); } catch (e) {}
   fieldImg.src = src;
 }
 
@@ -926,7 +1064,27 @@ fieldImg.src = fieldSrc; // kick off the first image load
 function drawField(c) {
   const g = c.getContext('2d');
   g.clearRect(0, 0, W, H);
+
   if (fieldImg.complete && fieldImg.naturalWidth) g.drawImage(fieldImg, 0, 0, W, H);
+  else drawPlaceholder(g);   // image missing or still loading
+}
+
+// Plain stand-in field: dark background, blue / red side strips, and a 6x6 tile grid for FTC.
+function drawPlaceholder(g) {
+  g.fillStyle = '#2b2f38';
+  g.fillRect(0, 0, W, H);
+
+  g.fillStyle = 'rgba(60,100,230,.25)';  g.fillRect(0, 0, W * .12, H);          // blue side (left)
+  g.fillStyle = 'rgba(220,70,60,.25)';   g.fillRect(W * .88, 0, W * .12, H);    // red side (right)
+
+  if (LG.id === 'FTC') {
+    g.strokeStyle = 'rgba(255,255,255,.15)';
+    g.lineWidth = 2;
+    for (let i = 1; i < 6; i++) {
+      g.beginPath(); g.moveTo(i * W / 6, 0); g.lineTo(i * W / 6, H); g.stroke();
+      g.beginPath(); g.moveTo(0, i * H / 6); g.lineTo(W, i * H / 6); g.stroke();
+    }
+  }
 }
 
 // Draws a rounded square marker centered on x,y (white outline, colored fill).
@@ -1130,11 +1288,45 @@ TABS.forEach(n => $('t' + n).onclick = () => show(n));
 // (Entry text is shown in English in every language.)
 const CHANGELOG = [
   {
-    v: '2.1.0',
+    v: '2.2.1',
+    date: '2026-11-15',
+    notes: [
+      'Images are now organized per league: images/frc, images/ftc, images/shared (default icon) and images/league-picker.',
+      'Matches you saved earlier, your remembered field and old exported files are upgraded automatically, so nothing disappears.'
+    ]
+  },
+  {
+    v: '2.2.0',
+    date: '2026-11-15',
+    notes: [
+      'TitanScout now supports FTC as well as FRC. A new start screen asks which league to use (Settings > Switch league brings it back). Each league keeps its own scouting data and settings.',
+      'FTC data comes from FTCScout (no key needed): event search, rankings (computed from match results), Team Stats with OPR-style estimates, and the Event Predictor for 2-team alliances.',
+      'FTC robot-type tags are Shooter, Intake, Defense and Base. FTC teams show the default icon.',
+      'Not available for FTC yet: Custom Predictor, and team history in predictions.'
+    ]
+  },
+  {
+    v: '2.0.5',
+    date: '2026-10-31',
+    notes: [
+      'Team Stats now has a Rank column with each team\'s event qualification rank (#1, #2, ...). Click its header to sort; it is shown by default, which helps during alliance selection.',
+      'Sorting now always puts teams with a missing value last.'
+    ]
+  },
+  {
+    v: '2.0.4',
+    date: '2026-10-31',
+    notes: [
+      'Teams with no logo on The Blue Alliance now show a default icon (No-Icon.png).',
+      'Offseason demo teams (9970-9999) now show their own icon (demoteam.png).'
+    ]
+  },
+  {
+    v: '2.0.3',
     date: '2026-10-26',
     notes: [
       'Match predictors now also project Auto (fuel), Teleop and Endgame for each alliance, with a win chance for each phase. Played matches show the real result beside it.',
-      'New Robot Types tab: tag teams as Turret, Dumper, Only Bump or Climb (L1) and add notes. Works for any team, including B teams. Tags can be shared through data/robot_types.json.',
+      'New Robot Types tab: tag teams as Turret, Dumper, Telescope or Climber and add notes. Works for any team, including B teams. Tags can be shared through data/robot_types.json.',
       'Team logos and names now appear next to team numbers in Event rankings and Team Stats.',
       'Removed the Statbotics (EPA) tab; Team Stats replaces it.',
       'Credits is now its own tab (it used to share an id with the Changelog button).'
@@ -1491,7 +1683,7 @@ $('imp').onclick = () => {
       team:     +m.team,
       match:    +m.match,
       alliance: m.alliance === 'blue' ? 'blue' : 'red',
-      field:    FIELDS.some(f => f[0] === m.field) ? m.field : FIELDS[0][0],
+      field:    FIELDS.some(f => f[0] === fixPath(m.field)) ? fixPath(m.field) : FIELDS[0][0],
       event:    typeof m.event === 'string' ? m.event : null,
       start:    m.start || null,
       auto:     m.auto,
@@ -1553,7 +1745,7 @@ function evLabel() {
 // (when we have its image) and refreshes the current tab.
 function setEvent(e) {
   ev = e;
-  try { localStorage.setItem('frcEv', JSON.stringify(e)); } catch (x) {}
+  try { localStorage.setItem(LG.p + 'Ev', JSON.stringify(e)); } catch (x) {}
 
   $('evPick').innerHTML = '';
   evLabel();
@@ -1576,6 +1768,8 @@ async function evSearch() {
   const q = $('evQ').value.trim().toLowerCase();
   $('evPick').innerHTML = '';
   if (!q) return;
+
+  if (LG.id === 'FTC') return ftcEvSearch(q);   // FTC events come from FTCScout, not TBA
 
   try {
     // 1) Full key such as "2026casd".
@@ -1629,7 +1823,8 @@ async function loadRank() {
   if (!ev) { $('rkInfo').textContent = t('pickEvent'); $('rkTable').innerHTML = ''; return; }
 
   try {
-    RKD = await tba('/event/' + ev.key + '/rankings');
+    // FRC: official TBA rankings. FTC: computed from the match results (see computeRankings).
+    RKD = LG.id === 'FTC' ? computeRankings(await getMatches()) : await tba('/event/' + ev.key + '/rankings');
     await ensureInfo().catch(() => {});   // team names (logos keep loading in the background)
     renderRank();
   } catch (e) {
@@ -1645,7 +1840,8 @@ function renderRank() {
 
   // Column names for the extra sort values (ranking points, tiebreakers, ...).
   const info = (d.sort_order_info || []).map(x => x.name);
-  $('rkInfo').textContent = t('rankFor') + ' ' + ev.name + ' (' + rk.length + ')';
+  $('rkInfo').textContent = t('rankFor') + ' ' + ev.name + ' (' + rk.length + ')' +
+    (LG.id === 'FTC' ? ' · computed from match results (wins and ties, then average score), not the official FTC rank' : '');
 
   let h = '<table><tr><th>' + t('rankH') + '</th><th>' + t('team') + '</th><th>W-L-T</th><th>' + t('played') + '</th>' +
           info.map(n => '<th>' + esc(n) + '</th>').join('') + '</tr>';
@@ -1663,6 +1859,155 @@ function renderRank() {
 
 
 /* =========================================================================
+   7b. FTC DATA (FTCScout)
+   FTC has no TBA, so event data comes from FTCScout's free public API (no key).
+   Its matches are converted into the same shape TBA uses, so Team Stats,
+   rankings and the predictors work unchanged for FTC.
+   ========================================================================= */
+
+const FTC_API = 'https://api.ftcscout.org/rest/v1';
+
+// Fetches an FTCScout path and throws a readable error on failure.
+async function ftcGet(path) {
+  let r;
+  try { r = await fetch(FTC_API + path); }
+  catch (e) { throw new Error('Could not reach FTCScout. Check your connection and try again.'); }
+
+  if (r.status === 404) throw new Error(t('notFound'));
+  if (!r.ok) throw new Error('FTCScout error ' + r.status);
+  return r.json();
+}
+
+// Converts FTCScout matches to TBA-shaped matches:
+//   comp_level   qm (qualifications), sf (semifinals / other playoffs), f (finals)
+//   alliances    { red / blue: { team_keys: ['frc123', ...], score } }  (score -1 = not played; the 'frc' prefix is only a label the shared code expects)
+//   score_breakdown  every score field FTCScout gives for each alliance
+function ftcToTba(list) {
+  const lvl = { quals: 'qm', semis: 'sf', finals: 'f' };
+
+  return (list || []).map(m => {
+    const sc   = m.scores || {},
+          red  = sc.red  || sc.Red  || null,
+          blue = sc.blue || sc.Blue || null,
+          // Total points for an alliance (null if the match has no score yet).
+          tot  = a => { const v = a ? +(a.totalPoints ?? a.totalPointsNp ?? a.total) : NaN; return Number.isFinite(v) ? v : null; },
+          rt   = tot(red),
+          bt   = tot(blue),
+          played = rt != null && bt != null && m.hasBeenPlayed !== false,
+          keys = c => (m.teams || []).filter(x => String(x.alliance).toLowerCase() === c).map(x => 'frc' + x.teamNumber),
+          when = m.actualStartTime || m.scheduledStartTime;
+
+    return {
+      comp_level:   lvl[String(m.tournamentLevel || '').toLowerCase()] || 'sf',
+      set_number:   m.series || 0,
+      match_number: m.matchNum ?? m.id,
+      event_key:    m.eventCode,
+      time:         when ? Math.floor(Date.parse(when) / 1000) : null,
+      alliances: {
+        red:  { team_keys: keys('red'),  score: played ? rt : -1 },
+        blue: { team_keys: keys('blue'), score: played ? bt : -1 }
+      },
+      score_breakdown: played ? { red, blue } : null
+    };
+  });
+}
+
+// Matches of an FTC event, already converted (the season comes from the selected event).
+async function ftcMatches(k) {
+  const y = ev && ev.key === k ? ev.year : FIELDS[0][1];
+  return ftcToTba(await ftcGet('/events/' + y + '/' + k + '/matches'));
+}
+
+// Event search for FTC: exact event code first, then name / city / state / country.
+async function ftcEvSearch(q) {
+  const y = seasonYear();
+
+  try {
+    const list = evCache['ftc' + y] || (evCache['ftc' + y] = await ftcGet('/events/' + y));
+    const pickEv = e => setEvent({ key: e.code, name: e.name, year: y });
+
+    const code = list.find(e => String(e.code).toLowerCase() === q);
+    if (code) { pickEv(code); return; }
+
+    // Text search, soonest events first, max 12.
+    const hits = list
+      .filter(e => [e.name, e.city, e.stateOrProvince, e.state, e.country, e.code].some(s => (s || '').toLowerCase().includes(q)))
+      .sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')))
+      .slice(0, 12);
+
+    if (!hits.length) { $('evInfo').textContent = t('noMatch') + ' "' + q + '" (' + y + ')'; return; }
+    if (hits.length === 1) { pickEv(hits[0]); return; }
+
+    // Several hits: one button per event.
+    $('evInfo').textContent = t('pickOne');
+    $('evPick').innerHTML = hits.map((e, i) =>
+      '<div class="row"><button data-i="' + i + '">' + esc(e.name) + ' · ' +
+      esc([e.city, e.stateOrProvince || e.state].filter(Boolean).join(', ')) + ' · ' + esc(String(e.start || '').slice(0, 10)) +
+      '</button></div>'
+    ).join('');
+
+    $('evPick').querySelectorAll('button').forEach(b => b.onclick = () => pickEv(hits[+b.dataset.i]));
+  } catch (e) {
+    $('evInfo').textContent = e.message;
+  }
+}
+
+// FTC has no official rankings in FTCScout's simple API, so we compute them from qualification results:
+// wins and ties per match first (win = 2, tie = 1), then average score. Returned in TBA's rankings shape.
+function computeRankings(ms) {
+  const T = {};
+
+  ms.filter(m => m.comp_level === 'qm' && m.alliances.red.score >= 0 && m.alliances.blue.score >= 0).forEach(m =>
+    ['red', 'blue'].forEach(c => {
+      const me = m.alliances[c], op = m.alliances[c === 'red' ? 'blue' : 'red'];
+
+      me.team_keys.forEach(k => {
+        const t = T[k] || (T[k] = { w: 0, l: 0, ties: 0, n: 0, pts: 0 });
+        t.n++;
+        t.pts += me.score;
+        if (me.score > op.score) t.w++; else if (me.score < op.score) t.l++; else t.ties++;
+      });
+    })
+  );
+
+  const rows = Object.keys(T)
+    .map(k => ({ k, t: T[k], rp: (2 * T[k].w + T[k].ties) / T[k].n, avg: T[k].pts / T[k].n }))
+    .sort((a, b) => b.rp - a.rp || b.avg - a.avg);
+
+  return {
+    rankings: rows.map((r, i) => ({
+      rank: i + 1,
+      team_key: r.k,
+      record: { wins: r.t.w, losses: r.t.l, ties: r.t.ties },
+      matches_played: r.t.n,
+      sort_orders: [r.rp, r.avg]
+    })),
+    sort_order_info: [{ name: 'Wins/ties per match' }, { name: 'Avg score' }]
+  };
+}
+
+// FTC team names: the team list comes from the event's matches; names come from FTCScout (6 requests at a time, filled in as they arrive).
+// FTC teams have no logos here, so they all show the default icon.
+async function ensureInfoFtc() {
+  const ms   = await getMatches(),
+        nums = [...new Set(ms.flatMap(m => m.alliances.red.team_keys.concat(m.alliances.blue.team_keys)).map(k => +k.slice(3)))];
+
+  nums.forEach(n => { TI[n] = TI[n] || { name: '' }; AV[n] = ''; });
+  ETEAMS = nums;
+  TIkey = ev.key;
+
+  pool(nums, 6, async n => {
+    if (TI[n].name) return;
+    try { TI[n].name = (await ftcGet('/teams/' + n)).name || ''; } catch (e) {}
+  }).then(() => {
+    if (tab === 'TS')   renderTS();
+    if (tab === 'Rank') renderRank();
+    if (tab === 'Rob')  renderRob();
+  });
+}
+
+
+/* =========================================================================
    8. TEAM NAMES, LOGOS AND ROBOT TYPES
    Names come from TBA's event team list; logos are TBA avatars (this season,
    else last season) loaded in the background. Robot types are tags set by hand
@@ -1671,7 +2016,8 @@ function renderRank() {
    ========================================================================= */
 
 const TI   = {};   // team number -> { name }
-const TAGS = ['Turret', 'Dumper', 'Bump Only', 'Climb (L1)'];
+// Robot types you can tag. FTC list: change it here to match how your teams describe robots.
+const TAGS = LG.id === 'FTC' ? ['Shooter', 'Intake', 'Defense', 'Base'] : ['Turret', 'Dumper', 'Telescope', 'Climber'];
 
 let AV      = {};     // team number -> logo as a data: URL ('' = none found)
 let ETEAMS  = [];     // team numbers at the selected event
@@ -1680,8 +2026,8 @@ let ROBBASE = {};     // tags from data/robot_types.json in the repo
 let ROBLOC  = {};     // tags edited on this device (these win over the repo file)
 
 // Logos are cached for this browser session only, so they never fill the match-data storage.
-try { AV = JSON.parse(sessionStorage.getItem('frcAv') || '{}'); } catch (e) {}
-try { ROBLOC = JSON.parse(localStorage.getItem('frcRobots') || '{}'); } catch (e) {}
+if (LG.id === 'FRC') try { AV = JSON.parse(sessionStorage.getItem('frcAv') || '{}'); } catch (e) {}   // (FTC has no logos, and team numbers overlap with FRC)
+try { ROBLOC = JSON.parse(localStorage.getItem(LG.p + 'Robots') || '{}'); } catch (e) {}
 
 // Rebuilds a clean {team: {tags, note}} object (never trust extra fields from files or pasted JSON).
 const cleanRob = j => {
@@ -1697,7 +2043,7 @@ const cleanRob = j => {
 };
 
 // Load the shared tags from the repo, if the file exists.
-fetch('data/robot_types.json', { cache: 'no-store' })
+fetch('data/robot_types' + (LG.id === 'FTC' ? '_ftc' : '') + '.json', { cache: 'no-store' })
   .then(r => r.ok ? r.json() : null)
   .then(j => { if (j) ROBBASE = cleanRob(j); })
   .catch(() => {});
@@ -1711,11 +2057,22 @@ const badge = t => {
   return g.length ? '<span>' + g.map(x => '<i class="bdg">' + esc(x) + '</i>').join('') + '</span>' : '';
 };
 
+// Icons for teams without a TBA logo (put these two files in the images/ folder).
+const ICON_NONE = 'images/shared/No-Icon.png',  // team has no logo (shared by both leagues)
+      ICON_DEMO = 'images/frc/demoteam.png';   // FRC offseason demo team
+
+// Offseason demo teams use numbers 9970-9999.
+const isDemo = t => LG.id === 'FRC' && +t >= 9970 && +t <= 9999;
+
 // One team cell: logo, number, name and badges (used by Event rankings, Team Stats and Robot Types).
+// Logo: demo teams get ICON_DEMO; other teams get their TBA logo, or ICON_NONE once we know they have none.
+// While a logo is still loading, an empty square is shown. If an image fails to load it falls back to ICON_NONE.
 const teamCell = t => {
-  const i = TI[t] || {}, img = AV[t];
+  const i = TI[t] || {},
+        img = isDemo(t) ? ICON_DEMO : AV[t] === undefined ? null : (AV[t] || ICON_NONE);
+
   return '<div class="tm">' +
-    (img ? '<img src="' + img + '" alt="">' : '<span class="ph"></span>') +
+    (img ? '<img src="' + img + '" alt="" onerror="this.onerror=null;this.src=\'' + ICON_NONE + '\'">' : '<span class="ph"></span>') +
     '<span><b>' + esc(t) + '</b>' + (i.name ? '<small>' + esc(i.name) + '</small>' : '') + badge(t) + '</span></div>';
 };
 
@@ -1723,6 +2080,7 @@ const teamCell = t => {
 // When the logos arrive, whichever tab is showing is redrawn.
 async function ensureInfo() {
   if (!ev || TIkey === ev.key) return;
+  if (LG.id === 'FTC') return ensureInfoFtc();
 
   const list = await tba('/event/' + ev.key + '/teams/simple');
   list.forEach(x => { TI[x.team_number] = { name: x.nickname }; });
@@ -1731,7 +2089,7 @@ async function ensureInfo() {
 
   pool(list, 6, async x => {
     const t = x.team_number;
-    if (AV[t] !== undefined) return;   // already looked up
+    if (AV[t] !== undefined || isDemo(t)) return;   // already looked up, or a demo team (it gets ICON_DEMO)
 
     let img = '';
     for (const y of [+ev.year, +ev.year - 1]) {   // this season, then last season
@@ -1754,7 +2112,7 @@ async function ensureInfo() {
 
 // Saves the tags edited on this device.
 const saveRob = () => {
-  try { localStorage.setItem('frcRobots', JSON.stringify(ROBLOC)); }
+  try { localStorage.setItem(LG.p + 'Robots', JSON.stringify(ROBLOC)); }
   catch (e) { alert(t('storeFail')); }
 };
 
@@ -1829,7 +2187,7 @@ $('rbImp').onclick = () => {
    ========================================================================= */
 
 // Stat labels we try to find in TBA's score breakdown (2026 game: fuel, hub, tower).
-const STATS = [
+const STATS_FRC = [
   'Hub Auto Fuel Count', 'Hub Teleop Fuel Count', 'Hub Endgame Fuel Count', 'Hub Total Fuel Count',
   'Hub Transition Fuel Count', 'Hub Shift 1 Fuel Count', 'Hub Shift 2 Fuel Count', 'Hub Shift 3 Fuel Count',
   'Hub Shift 4 Fuel Count', 'Hub First Active Shift Count', 'Hub Second Active Shift Count', 'Hub Uncounted',
@@ -1838,11 +2196,19 @@ const STATS = [
   'Total Points', 'Total Teleop Points', 'Total Tower Points', 'Traversal Achieved'
 ];
 
+// FTC: the labels FTCScout most likely uses. Any other score field it provides still shows up as an extra column in the Columns menu.
+const STATS_FTC = ['Total Points', 'Auto Points', 'Dc Points', 'Penalty Points Committed'];
+
+const STATS = LG.id === 'FTC' ? STATS_FTC : STATS_FRC;
+
 // Columns shown by default.
-const DEFCOLS = [
-  'OPR', 'Hub Auto Fuel Count', 'Hub Teleop Fuel Count', 'Hub Total Fuel Count',
+const DEFCOLS_FRC = [
+  'RANK', 'OPR', 'Hub Auto Fuel Count', 'Hub Teleop Fuel Count', 'Hub Total Fuel Count',
   'Total Auto Points', 'Total Teleop Points', 'Total Tower Points', 'Total Points'
 ];
+const DEFCOLS_FTC = ['RANK', 'OPR', 'Auto Points', 'Dc Points', 'Total Points'];
+
+const DEFCOLS = LG.id === 'FTC' ? DEFCOLS_FTC : DEFCOLS_FRC;
 
 // <core>  (math shared with the Match Predictor; marked so it can be tested/extracted)
 
@@ -1918,7 +2284,7 @@ function buildTS(ms, op) {
     })
   );
 
-  const P = [...paths], found = {}, cols = [{ id: 'OPR', label: 'OPR' }], pc = [];
+  const P = [...paths], found = {}, cols = [{ id: 'RANK', label: 'Rank', noChart: 1 }, { id: 'OPR', label: 'OPR' }], pc = [];
 
   // Match each wanted stat label to a real TBA field (dropping filler words if the first try fails).
   STATS.forEach(l => {
@@ -1974,7 +2340,12 @@ let TS = null,                          // built data for the selected event
     tsSort = { id: 'OPR', dir: -1 },    // sort column and direction (-1 = high to low)
     tsVis = null;                       // visible column ids (null = defaults)
 
-try { tsVis = JSON.parse(localStorage.getItem('frcTsCols') || 'null'); } catch (e) {}
+try { tsVis = JSON.parse(localStorage.getItem(LG.p + 'TsCols') || 'null'); } catch (e) {}
+
+// The Rank column is new: add it once to column choices saved before it existed.
+try {
+  if (tsVis && !tsVis.includes('RANK') && !localStorage.getItem(LG.p + 'TsRankSeen')) tsVis.unshift('RANK');
+} catch (e) {}
 
 // Number format: 2 decimals under 10, 1 decimal otherwise, en dash if missing.
 const fmt = v => v == null ? '–' : (Math.abs(v) < 10 ? v.toFixed(2) : v.toFixed(1));
@@ -1986,23 +2357,34 @@ async function loadTS(force) {
 
   $('tsInfo').textContent = t('loading');
   try {
-    const [ms, op] = await Promise.all([
+    const ftc = LG.id === 'FTC';   // FTC has no TBA: OPR is our own estimate and rank is computed from the matches
+
+    const [ms, op, rk0] = await Promise.all([
       getMatches(force),
-      tba('/event/' + ev.key + '/oprs').catch(() => null)   // OPRs are optional
+      ftc ? null : tba('/event/' + ev.key + '/oprs').catch(() => null),       // OPRs are optional
+      ftc ? null : tba('/event/' + ev.key + '/rankings').catch(() => null)    // so are rankings (none are posted before qualifications start)
     ]);
+
+    const rk = ftc ? computeRankings(ms) : rk0;
 
     TS = buildTS(ms, op);
     TS.key = ev.key;
 
+    // Event rank per team (1 = first). Teams without a posted rank stay empty and show an en dash.
+    const rankOf = {};
+    ((rk && rk.rankings) || []).forEach(r => { rankOf[r.team_key.slice(3)] = r.rank; });
+    TS.teams.forEach(x => { TS.v[x].RANK = rankOf[x] ?? null; });
+
     await ensureInfo().catch(() => {});   // team names and logos for the first column
 
-    // Chart dropdowns list every column.
-    const opts = TS.cols.map(c => '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>').join('');
+    // Chart dropdowns list every column except Rank.
+    const cc = TS.cols.filter(c => !c.noChart),
+          opts = cc.map(c => '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>').join('');
     $('cX').innerHTML = opts;
     $('cY').innerHTML = opts;
     $('cS').innerHTML = '<option value="">–</option>' + opts;
     $('cX').value = 'OPR';
-    $('cY').value = TS.cols[3] ? TS.cols[3].id : 'OPR';
+    $('cY').value = cc[3] ? cc[3].id : 'OPR';
 
     renderTS();
   } catch (e) {
@@ -2013,6 +2395,10 @@ async function loadTS(force) {
 // Draws the Team Stats table (columns, filter, sort, highlight) and then the chart.
 function renderTS() {
   if (!TS) return;
+
+  // Keep the Rank column's name in the current language.
+  const rc = TS.cols.find(c => c.id === 'RANK');
+  if (rc) rc.label = t('rankH');
 
   const vis  = new Set(tsVis || DEFCOLS),
         miss = Object.keys(TS.found).filter(k => !TS.found[k]);   // stats this event's data lacks
@@ -2029,7 +2415,7 @@ function renderTS() {
 
   $('tsColList').querySelectorAll('input').forEach(i => i.onchange = () => {
     tsVis = [...$('tsColList').querySelectorAll('input:checked')].map(x => x.dataset.c);
-    try { localStorage.setItem('frcTsCols', JSON.stringify(tsVis)); } catch (e) {}
+    try { localStorage.setItem(LG.p + 'TsCols', JSON.stringify(tsVis)); localStorage.setItem(LG.p + 'TsRankSeen', '1'); } catch (e) {}
     renderTS();
   });
 
@@ -2040,7 +2426,11 @@ function renderTS() {
   // Filter, then sort by the chosen column (missing values sort last).
   const rows = TS.teams
     .filter(x => !q || String(x).startsWith(q) || ((TI[x] || {}).name || '').toLowerCase().includes(q.toLowerCase()))   // number prefix or team name
-    .sort((a, b) => ((TS.v[a][tsSort.id] ?? -1e9) - (TS.v[b][tsSort.id] ?? -1e9)) * tsSort.dir);
+    .sort((a, b) => {
+      const va = TS.v[a][tsSort.id], vb = TS.v[b][tsSort.id];
+      if (va == null || vb == null) return (va == null) - (vb == null);   // missing values always last
+      return (va - vb) * tsSort.dir;
+    });
 
   $('tsTable').innerHTML =
     '<table class="ts"><tr><th data-s="team">Team</th>' +
@@ -2048,14 +2438,14 @@ function renderTS() {
     '</tr>' +
     rows.map(x =>
       '<tr' + (String(x) === hi ? ' class="hi"' : '') + '><td>' + teamCell(x) + '</td>' +
-      cols.map(c => '<td>' + fmt(TS.v[x][c.id]) + '</td>').join('') + '</tr>'
+      cols.map(c => '<td>' + (c.id === 'RANK' ? (TS.v[x].RANK == null ? '–' : '#' + TS.v[x].RANK) : fmt(TS.v[x][c.id])) + '</td>').join('') + '</tr>'
     ).join('') + '</table>';
 
   // Clicking a header sorts by it (again = reverse; the Team header resets to OPR).
   $('tsTable').querySelectorAll('th').forEach(h => h.onclick = () => {
     const id = h.dataset.s;
     if (id === 'team') tsSort = { id: 'OPR', dir: -1 };
-    else tsSort = { id, dir: tsSort.id === id ? -tsSort.dir : -1 };
+    else tsSort = { id, dir: tsSort.id === id ? -tsSort.dir : (id === 'RANK' ? 1 : -1) };   // rank: 1 first, other columns: highest first
     renderTS();
   });
 
@@ -2220,7 +2610,7 @@ function rsiOf(ms, team) {
     m += d; m2 += d * d; s += (mine.score + opp.score) / 2; n++;
   }
 
-  return n && s ? { rsi: m / s, n, mu: s / n / 3, sd: Math.sqrt(m2 / n) } : null;
+  return n && s ? { rsi: m / s, n, mu: s / n / LG.size, sd: Math.sqrt(m2 / n) } : null;
 }
 
 // Weight of each season: this season / last season / two seasons ago.
@@ -2238,7 +2628,7 @@ function mergeRSI(parts) {
 // Converts a prior (RSI + evidence) into expected points per robot, kept between 0.2x and 3x the event average.
 const priorMean = (p, mu) => {
   const sh = p.eff / (p.eff + 12);
-  return Math.min(3 * mu, Math.max(.2 * mu, mu * (1 + 3 * p.rsi * sh)));
+  return Math.min(LG.size * mu, Math.max(.2 * mu, mu * (1 + LG.size * p.rsi * sh)));
 };
 
 // Ridge fit pulled toward each team's prior (its history) instead of one flat average;
@@ -2254,7 +2644,7 @@ function fitRatings(al, opt = {}) {
   const teams = [...ts], ix = {}, n = teams.length;
 
   // Average points per robot (needs at least 6 alliance results, else use the fallback).
-  const mu = al.length >= 6 ? al.reduce((s, a) => s + a.score, 0) / al.length / 3 : (opt.mu || 0);
+  const mu = al.length >= 6 ? al.reduce((s, a) => s + a.score, 0) / al.length / LG.size : (opt.mu || 0);
   if (!n) return { r: {}, mu };
 
   teams.forEach((t, i) => ix[t] = i);
@@ -2325,7 +2715,7 @@ function buildPred(ms, prior, paths) {
         al = qd.map(m => [mk(m, 'red'), mk(m, 'blue')]);
 
   // Average points per robot across the whole event (fallback scale for early fits).
-  const avg  = f => al.length ? al.flat().reduce((s, a) => s + f(a), 0) / al.length / 2 / 3 : 0,
+  const avg  = f => al.length ? al.flat().reduce((s, a) => s + f(a), 0) / al.length / 2 / LG.size : 0,
         muAll = avg(a => a.score);
 
   // fit(k) = total-score ratings using only the first k played qualification matches (cached).
@@ -2431,14 +2821,21 @@ function compPaths(ms) {
           end:  pk('End Game Tower Points') || pk('Total Tower Points')
         };
 
+  // FTC: auto points and driver-controlled (teleop) points. There is no separate endgame field.
+  if (LG.id === 'FTC') {
+    const f = { auto: pk('Auto Points'), tele: pk('Dc Points'), end: null };
+    return f.auto || f.tele ? f : null;
+  }
+
   return o.auto || o.tele || o.end ? o : null;
 }
 
 // ---- TBA match fetching (cached per event) ----
 const MC = {};   // event key -> matches
 async function getMatchesFor(k, force) {
-  if (force || !MC[k]) MC[k] = await tba('/event/' + k + '/matches');
-  return MC[k];
+  const ck = LG.p + ':' + k;   // FRC and FTC event codes are cached separately
+  if (force || !MC[ck]) MC[ck] = LG.id === 'FTC' ? await ftcMatches(k) : await tba('/event/' + k + '/matches');
+  return MC[ck];
 }
 const getMatches = force => getMatchesFor(ev.key, force);   // matches for the selected event
 
@@ -2510,7 +2907,8 @@ async function loadPred(force) {
     const times  = ms.map(m => m.time || m.predicted_time).filter(Boolean),
           cutoff = times.length ? Math.min(...times) : Infinity;
 
-    const { pri } = await loadPriors(teams, +ev.year, { cutoff, exclude: ev.key, ds: [0, 1, 2] },
+    // Team history comes from TBA, so it is FRC only for now (FTC predictions use this event's matches).
+    const { pri } = LG.id === 'FTC' ? { pri: {} } : await loadPriors(teams, +ev.year, { cutoff, exclude: ev.key, ds: [0, 1, 2] },
       (d, n) => { $('pmInfo').textContent = t('loading') + ' ' + d + '/' + n; });   // live progress
 
     PR = buildPred(ms, pri, compPaths(ms));   // compPaths = Auto / Teleop / Endgame fields
@@ -2571,8 +2969,8 @@ function renderEvt() {
     (PR.acc.n
       ? 'called ' + PR.acc.ok + ' of ' + PR.acc.n + ' played matches (' + Math.round(100 * PR.acc.ok / PR.acc.n) + '%), each predicted from earlier matches only'
       : 'not enough played matches to score the model yet') +
-    ' · typical margin error ±' + Math.round(PR.sigma) + ' pts · history for ' + PR.hist + '/' + PR.nt +
-    ' teams (earlier matches this season and the last two)';
+    ' · typical margin error ±' + Math.round(PR.sigma) + ' pts' +
+    (LG.id === 'FTC' ? '' : ' · history for ' + PR.hist + '/' + PR.nt + ' teams (earlier matches this season and the last two)');   // history is FRC only for now
 
   $('pmList').innerHTML = rows.map(r => {
     const pw   = r.pr >= r.pb ? 'red' : 'blue',                                     // projected winner
@@ -2889,7 +3287,7 @@ function setLang(l) {
   Object.entries(LBL).forEach(([id, k]) => setTxt($(id).parentNode, t(k)));
 
   // Placeholders and dropdown options.
-  $('evQ').placeholder = t('evPh');
+  $('evQ').placeholder = LG.id === 'FTC' ? 'Event name, code, city or state (e.g. USCALAT, San Diego, California)' : t('evPh');
   $('io').placeholder  = t('ioPh');
   [...$('fPhase').options].forEach(o => o.text = t(o.value));
   [...$('rHeat').options].forEach(o => o.text = t({ live: 'live', team: 'teamTotal', none: 'none' }[o.value]));
@@ -2913,6 +3311,34 @@ $('langSel').onchange = () => setLang($('langSel').value);
 let savedLang = null;
 try { savedLang = localStorage.getItem('frcLang'); } catch (e) {}
 setLang(savedLang || (navigator.language || 'en').slice(0, 2));
+
+// ---- League start-up ----
+$('appTitle').textContent = 'TitanScout v2.2.1 · ' + LG.name;
+$('leagueNow').textContent = LG.name;
+
+if (LG.id === 'FTC') {
+  $('keyRow').classList.add('hide');    // FTCScout needs no key
+  $('tCust').classList.add('hide');     // Custom Predictor is FRC only for now
+}
+
+// First visit (no league chosen yet): show the picker screen.
+if (!leagueChoice) $('leagueGate').classList.remove('hide');
+
+// Saves the league and reloads so every setting loads for it.
+function pickLeague(l) {
+  try { localStorage.setItem('titanLeague', l); }
+  catch (e) { location.search = '?league=' + l; return; }   // storage blocked: remember it in the address instead
+  location.href = location.pathname;
+}
+
+$('pickFRC').onclick = () => pickLeague('FRC');
+$('pickFTC').onclick = () => pickLeague('FTC');
+
+// Settings > Switch league: forget the choice and show the picker again.
+$('leagueSwitch').onclick = () => {
+  try { localStorage.removeItem('titanLeague'); } catch (e) {}
+  location.href = location.pathname;
+};
 
 evLabel();
 drawTrace();
